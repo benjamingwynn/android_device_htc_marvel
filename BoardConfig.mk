@@ -58,7 +58,7 @@ WIFI_BAND                        := 802_11_ABG
 ### Graphics
 # Option for choosing texture target on old adrenos
 BOARD_ADRENO_DECIDE_TEXTURE_TARGET := true
-BOARD_EGL_CFG := device/htc/msm7x27-common/egl.cfg
+BOARD_EGL_CFG := device/htc/marvel/egl.cfg
 
 COMMON_GLOBAL_CFLAGS += -DREFRESH_RATE=60 -DQCOM_HARDWARE
 USE_OPENGL_RENDERER := true
