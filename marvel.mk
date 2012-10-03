@@ -179,7 +179,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_COPY_FILES += \
     device/htc/marvel/key/marvel-keypad.kl:system/usr/keylayout/marvel-keypad.kl \PRODUCT_COPY_FILES += \
     device/htc/marvel/init.marvel.rc:root/init.marvel.rc \
-    device/htc/marvel/ueventd.marvel.rc:root/ueventd.marvel.rc
+    device/htc/marvel/ueventd.marvel.rc:root/ueventd.marvel.rc \
     device/htc/marvel/key/marvel-keypad.kcm.bin:system/usr/keychars/marvel-keypad.kcm.bin \
     device/htc/marvel/key/h2w_headset.kl:system/usr/keylayout/h2w_headset.kl \
     device/htc/marvel/key/cy8c-touchscreen.kl:system/usr/keylayout/cy8c-touchscreen.kl
