@@ -90,7 +90,7 @@ BOARD_USES_MMCUTILS := false
 BOARD_HAS_NO_SELECT_BUTTON := true
 BOARD_HAS_NO_MISC_PARTITION := true
 BOARD_USES_MSM7X27_RECOVERY := true
-TARGET_RECOVERY_INITRC = device/htc/msm7x27-recovery/init.htc.rc
+TARGET_RECOVERY_INITRC = device/htc/marvel/recovery/init.htc.rc
 
 ### Audio
 BOARD_USES_GENERIC_AUDIO := false
