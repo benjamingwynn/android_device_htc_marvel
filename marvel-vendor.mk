@@ -14,7 +14,7 @@
 
 # Goo.im GooManager
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/prebuilt/propietary/app/GooManager.apk:/system/app/GooManager.apk
+    device/htc/marvel/prebuilt/proprietary/app/GooManager.apk:/system/app/GooManager.apk
 
 # Prebuilt libraries that are needed to build open-source libraries
 PRODUCT_COPY_FILES += \
