@@ -84,7 +84,7 @@ PRODUCT_PACKAGES += \
 
 ### Audio policy
 PRODUCT_COPY_FILES += \
-    device/htc/marvel-common/libaudio/audio_policy.conf:system/etc/audio_policy.conf
+    device/htc/marvel/libaudio/audio_policy.conf:system/etc/audio_policy.conf
 
 # Video
 PRODUCT_PACKAGES += \
@@ -109,7 +109,7 @@ PRODUCT_PACKAGES += \
 
 ### Mount vold
 PRODUCT_COPY_FILES += \
-    device/htc/marvel-common/vold.fstab:system/etc/vold.fstab
+    device/htc/marvel/vold.fstab:system/etc/vold.fstab
 
 # Lights and sensors
 PRODUCT_PACKAGES += \
@@ -192,8 +192,8 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 ### Touchscreen
 PRODUCT_COPY_FILES += \
-    device/htc/marvel-common/idc/atmel-touchscreen.idc:system/usr/idc/atmel-touchscreen.idc \
-    device/htc/marvel-common/idc/cy8c-touchscreen.idc:system/usr/idc/cy8c-touchscreen.idc
+    device/htc/marvel/idc/atmel-touchscreen.idc:system/usr/idc/atmel-touchscreen.idc \
+    device/htc/marvelF/idc/cy8c-touchscreen.idc:system/usr/idc/cy8c-touchscreen.idc
 
 # Misc
 PRODUCT_PROPERTY_OVERRIDES += \
