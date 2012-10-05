@@ -161,8 +161,10 @@ PRODUCT_PROPERTY_OVERRIDES += \
     ro.sf.lcd_density=160 \
     ro.opengles.version=131072 \
     debug.sf.hw=1 \
+    debug.enabletr=false \
     debug.qctwa.statusbar=1 \
     debug.qctwa.preservebuf=1 \
+    debug.hwui.render_dirty_regions=false \
     com.qc.hardware=true \
     com.qc.hdmi_out=false
 
