@@ -193,7 +193,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 ### Touchscreen
 PRODUCT_COPY_FILES += \
     device/htc/marvel/idc/atmel-touchscreen.idc:system/usr/idc/atmel-touchscreen.idc \
-    device/htc/marvelF/idc/cy8c-touchscreen.idc:system/usr/idc/cy8c-touchscreen.idc
+    device/htc/marvel/idc/cy8c-touchscreen.idc:system/usr/idc/cy8c-touchscreen.idc
 
 # Misc
 PRODUCT_PROPERTY_OVERRIDES += \
