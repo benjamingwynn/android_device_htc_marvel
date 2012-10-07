@@ -48,8 +48,8 @@ enum {
  MDP_BGRA_8888,                    // ARGB 888
  MDP_RGBX_8888,                    // RGBX 888
 #if 0 // disabled for marvel in kernel
- MDP_Y_CRCB_H2V2_TILE,             // Y and CrCb, pseudo planer tile
- MDP_Y_CBCR_H2V2_TILE,             // Y and CbCr, pseudo planer tile
+//MDP_Y_CRCB_H2V2_TILE,             // Y and CrCb, pseudo planer tile
+// MDP_Y_CBCR_H2V2_TILE,             // Y and CbCr, pseudo planer tile
 #endif
  MDP_Y_CR_CB_H2V2,                 // Y, Cr and Cb, planar
  MDP_Y_CB_CR_H2V2,                 // Y, Cb and Cr, planar
@@ -64,8 +64,8 @@ enum {
  * to be defined for compilation
  * */
 #define MDP_Y_CBCR_H2V2_ADRENO MDP_Y_CBCR_H2V2
-#define MDP_Y_CBCR_H2V2_TILE   MDP_Y_CBCR_H2V2
-#define MDP_Y_CRCB_H2V2_TILE   MDP_Y_CRCB_H2V2
+//#define MDP_Y_CBCR_H2V2_TILE   MDP_Y_CBCR_H2V2
+//#define MDP_Y_CRCB_H2V2_TILE   MDP_Y_CRCB_H2V2
 #define MDP_Y_CR_CB_GH2V2      MDP_Y_CR_CB_H2V2
 
 enum {
