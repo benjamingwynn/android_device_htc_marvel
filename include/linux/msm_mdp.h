@@ -34,14 +34,14 @@ typedef __u32 uint32_t;
 #define MDP_IMGTYPE2_START 0x10000
 
 enum {
+  // Disable some of these for now, as they brake compile
  MDP_RGB_565,                      // RGB 565 planer
  MDP_XRGB_8888,                    // RGB 888 padded
- MDP_Y_CBCR_H2V2,                  // Y and CbCr, pseudo planer w/ Cb is in MSB
+ //MDP_Y_CBCR_H2V2,                  // Y and CbCr, pseudo planer w/ Cb is in MSB
  MDP_ARGB_8888,                    // ARGB 888
  MDP_RGB_888,                      // RGB 888 planer
- MDP_Y_CRCB_H2V2,                  // Y and CrCb, pseudo planer w/ Cr is in MSB
- MDP_YCRYCB_H2V1,                  // YCrYCb interleave
- // Disable these for now, as they brake compile
+ //MDP_Y_CRCB_H2V2,                  // Y and CrCb, pseudo planer w/ Cr is in MSB
+ //MDP_YCRYCB_H2V1,                  // YCrYCb interleave
  //MDP_Y_CRCB_H2V1,                  // Y and CrCb, pseduo planer w/ Cr is in MSB
  //MDP_Y_CBCR_H2V1,                  // Y and CrCb, pseduo planer w/ Cr is in MSB
  MDP_RGBA_8888,                    // ARGB 888
