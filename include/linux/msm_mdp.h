@@ -13,6 +13,7 @@
 #define _MSM_MDP_H_
 
 #include <linux/types.h>
+#include <linux/fb.h>
 
 #ifndef uint32_t
 typedef __u32 uint32_t;
@@ -211,4 +212,3 @@ struct msmfb_mixer_info_req {
 };
 
 #endif
-
