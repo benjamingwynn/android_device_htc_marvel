@@ -162,6 +162,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
     ro.opengles.version=131072 \
     debug.sf.hw=1 \
     debug.enabletr=false \
+    debug.composition.type=gpu \
     debug.qctwa.statusbar=1 \
     debug.qctwa.preservebuf=1 \
     debug.hwui.render_dirty_regions=false \
