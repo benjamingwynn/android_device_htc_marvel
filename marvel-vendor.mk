@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# init.d
+PRODUCT_COPY_FILE += \
+    device/htc/marvel/prebuilt/init.d/77tweaks:/system/etc/init.d/77tweaks \
+    device/htc/marvel/prebuilt/init.d/97loopy_smoothness_tweak:/system/etc/init.d/97loopy_smoothness_tweak
+
 # Goo.im GooManager
 PRODUCT_COPY_FILES += \
     device/htc/marvel/prebuilt/proprietary/app/GooManager.apk:/system/app/GooManager.apk

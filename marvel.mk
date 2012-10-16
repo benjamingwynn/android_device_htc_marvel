@@ -223,3 +223,20 @@ PRODUCT_PACKAGES += \
 
 PRODUCT_AAPT_CONFIG := normal mdpi
 PRODUCT_AAPT_PREF_CONFIG := mdpi
+
+### Speed/battery life hacks
+# These were created/found by dudeman1996 for RobotoMOD, but I'll test them here to see how they run.
+# https://github.com/benjamingwynn/robotomod/commit/725a50f102a341f3a11fe7752e19803648f2a968
+
+PRODUCT_PROPERTY_OVERRIDES += \
+    windowsmgr.max_events_per_sec=150 \
+    pm.sleep_mode=1 \
+    ro.ril.disable.power.collapse=0 \
+    debug.performance.tuning=1 \
+    video.accelerate.hw=1 \
+    net.tcp.buffersize.default=4096,87380,256960,4096,16384,256960 \
+    net.tcp.buffersize.wifi=4096,87380,256960,4096,16384,256960 \
+    net.tcp.buffersize.umts=4096,87380,256960,4096,16384,256960 \
+    net.tcp.buffersize.gprs=4096,87380,256960,4096,16384,256960 \
+    net.tcp.buffersize.edge=4096,87380,256960,4096,16384,256960
+
