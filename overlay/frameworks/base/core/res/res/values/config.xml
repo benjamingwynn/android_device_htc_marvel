@@ -112,7 +112,7 @@
          animation with the specified delay (in milliseconds), -1 will disable the
          animation
     -->
-    <!-- <integer name="config_screenOnAnimation">0</integer> -->
+    <!-- <integer name="config_screenOnAnimation">1</integer> -->
 
     <!-- Enable electron beam animation -->
     <bool name="config_animateScreenLights">false</bool>
