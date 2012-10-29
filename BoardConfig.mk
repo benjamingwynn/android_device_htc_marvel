@@ -69,9 +69,14 @@ TARGET_USES_OVERLAY := false
 TARGET_QCOM_HDMI_OUT := false
 TARGET_GRALLOC_USES_ASHMEM := false
 TARGET_USES_GENLOCK := true
+
 # Backwards compatibility with ICS GPU drivers
 # Remove when (and if) Qualcomm releases Jelly Bean drivers for ARMv6
-COMMON_GLOBAL_CFLAGS += -DQCOM_ICS_COMPAT
+#COMMON_GLOBAL_CFLAGS += -DQCOM_ICS_COMPAT
+
+# for modified libstagefright
+COMMON_GLOBAL_CFLAGS += -DQCOM_LEGACY_OMX
+
 # Disable HW VSYNC, kernel does not support it (yet)
 TARGET_NO_HW_VSYNC := true
 
