@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-TARGET_BOOTLOADER_BOARD_NAME := marvel
-TARGET_SPECIFIC_HEADER_PATH := device/htc/marvel/include
+TARGET_BOOTLOADER_BOARD_NAME := icong
+TARGET_SPECIFIC_HEADER_PATH := device/htc/icong/include
 
 ### Board config
 TARGET_NO_BOOTLOADER := true
