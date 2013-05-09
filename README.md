@@ -1,4 +1,4 @@
-Cyanogenmod 10 for the HTC Wildfire S
+Cyanogenmod 10.1 for the HTC Salsa
 ==============================
 
 This is the device tree created .
@@ -6,6 +6,7 @@ This is the device tree created .
 Credits
 ==============================
 
+- Benjamingwynn
 - alquez
 - winsuck & modpunk (kanged patches)
 - The XDA team (build server)
@@ -15,11 +16,9 @@ Credits
 Known bugs
 ==============================
 
-- HQ YouTube playback causes lag
-- Video camera doesn't record
-- Camera preview has graphic bugs, but can take a picture fine
-- Screen doesn't unlock when brightness is set to minimum
-
+- Please use and report on XDA ASAP
+- 
+- 
 How to build
 ==============================
 
