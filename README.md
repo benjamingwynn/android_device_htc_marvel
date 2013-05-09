@@ -15,11 +15,4 @@ Credits
 
 Known bugs
 ==============================
-
-- Please use and report on XDA ASAP
-- 
-- 
-How to build
-==============================
-
-Please see: http://benjamingwynn.tk/how-to-compile-cyanogenmod-10-for-the-wildfire-s/
+Please use and report on XDA ASAP
