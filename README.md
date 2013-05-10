@@ -6,8 +6,9 @@ This is the device tree created .
 Credits
 ==============================
 
-- Benjamingwynn
+- My Parents (Pillars of support)
 - alquez
+- Benjamingwynn
 - winsuck & modpunk (kanged patches)
 - The XDA team (build server)
 - The goo.im team (build hosting)
