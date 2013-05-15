@@ -91,12 +91,12 @@ COMMON_GLOBAL_CFLAGS += -DBINDER_COMPAT
 ### Recovery
 
 #BOARD_USES_RECOVERY_CHARGEMODE := true
-BOARD_CUSTOM_GRAPHICS := ../../../device/htc/marvel/recovery/graphics.c
+BOARD_CUSTOM_GRAPHICS := ../../../device/htc/icong/recovery/graphics.c
 BOARD_USES_MMCUTILS := false
 BOARD_HAS_NO_SELECT_BUTTON := true
 BOARD_HAS_NO_MISC_PARTITION := true
 BOARD_USES_MSM7X27_RECOVERY := true
-TARGET_RECOVERY_INITRC = device/htc/marvel/recovery/init.htc.rc
+TARGET_RECOVERY_INITRC = device/htc/icong/recovery/init.htc.rc
 
 ### Audio
 BOARD_USES_GENERIC_AUDIO := false
@@ -106,7 +106,7 @@ BOARD_USES_QCOM_AUDIO_RESETALL := true
 
 ### Partitions
 
-# # cat /proc/mtd (marvel)
+# # cat /proc/mtd (icong)
 #dev:    size   erasesize  name
 #mtd0: 00100000 00040000 "misc"
 #mtd1: 00500000 00040000 "recovery"
