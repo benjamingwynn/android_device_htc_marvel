@@ -11,6 +11,7 @@ LOCAL_MODULE_PATH      := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE           := camera.$(TARGET_BOARD_PLATFORM)
 
 LOCAL_SRC_FILES        := QcomCamera.cpp
+                       := mt9v113.c
 
 LOCAL_SHARED_LIBRARIES := liblog libdl libutils libcamera_client libbinder \
                           libcutils libhardware libui libcamera
