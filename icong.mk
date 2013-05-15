@@ -25,7 +25,7 @@ $(call inherit-product, device/common/gps/gps_eu_supl.mk)
 DEVICE_PACKAGE_OVERLAYS += device/htc/icong/overlay
 
 # dalvik heap config for devices with 512MB memory
-$(call inherit-product, frameworks/native/build/phone-hdpi-512-dalvik-heap.mk)
+$(call inherit-product, frameworks/native/build/phone-mdpi-512-dalvik-heap.mk)
 
 PRODUCT_COPY_FILES += \
     device/htc/icong/init.icong.rc:root/init.icong.rc \
@@ -154,7 +154,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     mobiledata.interfaces=rmnet0,rmnet1,rmnet2,gprs,ppp0 \
     wifi.interface = wlan0 \
-    wifi.supplicant_scan_interval=60
+    wifi.supplicant_scan_interval=40
 
 # Graphics
 PRODUCT_PROPERTY_OVERRIDES += \
