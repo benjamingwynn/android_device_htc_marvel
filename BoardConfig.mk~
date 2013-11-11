@@ -59,7 +59,7 @@ WIFI_BAND                        := 802_11_ABG
 ### Graphics
 # Option for choosing texture target on old adrenos
 BOARD_ADRENO_DECIDE_TEXTURE_TARGET := true
-BOARD_EGL_CFG := device/htc/icong/egl.cfg
+BOARD_EGL_CFG := device/htc/marvel/egl.cfg
 
 COMMON_GLOBAL_CFLAGS += -DREFRESH_RATE=60 -DQCOM_HARDWARE -DQCOM_LEGACY_OMX
 USE_OPENGL_RENDERER := true
@@ -146,7 +146,7 @@ BOARD_USES_QCOM_LIBS := true
 BOARD_USES_QCOM_LIBRPC := true
 BOARD_USES_QCOM_GPS := true
 BOARD_USE_QCOM_PMEM := true
-BOARD_VENDOR_QCOM_GPS_LOC_API_HARDWARE := icong
+BOARD_VENDOR_QCOM_GPS_LOC_API_HARDWARE := marvel
 BOARD_VENDOR_QCOM_GPS_LOC_API_AMSS_VERSION := 20000
 
 ### RIL

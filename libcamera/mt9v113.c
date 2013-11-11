@@ -1,1482 +1,1509 @@
-/*  
- * drivers/media/video/mt9v113.c	
+/*
  *
- * Based on TI TVP5146/47 decoder driver	
+ * Aptina MT9V113 sensor driver
  *
- *	
- * This package is free software; you can redistribute it and/or modify	
+ * Copyright (C) 2012 Aptina Imaging
+ *
+ * Contributor Prashanth Subramanya <sprashanth@aptina.com>
+ *
+ * Based on MT9P031 driver
+ *
+ * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.	
+ * published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,	
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License	
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  */
 
-#include <linux/i2c.h>	
 #include <linux/delay.h>
+#include <linux/i2c.h>
+#include <linux/module.h>
 #include <linux/videodev2.h>
-#include <linux/io.h>	
-#include <media/v4l2-int-device.h>
+
 #include <media/mt9v113.h>
-#include "mt9v113_regs.h"
-/* Module Name */
-#define MT9V113_MODULE_NAME		"mt9v113"
-/* Private macros for TVP */
-#define I2C_RETRY_COUNT                 (5)
-/* Debug functions */
-static int debug = 1;
-module_param(debug, bool, 0644);
-MODULE_PARM_DESC(debug, "Debug level (0-1)");
-/*
- * enum mt9v113_std - enum for supported standards	
- */
-enum mt9v113_std {	
-	MT9V113_STD_VGA = 0,
-	MT9V113_STD_QVGA,
-	MT9V113_STD_INVALID
-};	
-/*	
- * enum mt9v113_state - enum for different decoder states	
- */	
-enum mt9v113_state {	
-	STATE_NOT_DETECTED,
-	STATE_DETECTED
-};	
-/*	
- * struct mt9v113_std_info - Structure to store standard informations	
- * @width: Line width in pixels
- * @height:Number of active lines
- * @video_std: Value to write in REG_VIDEO_STD register
- * @standard: v4l2 standard structure information
- */
-struct mt9v113_std_info {	
-	unsigned long width;
-	unsigned long height;
-	u8 video_std;
-	struct v4l2_standard standard;
-};	
-/*	
- * struct mt9v113_decoded - decoder object	
- * @v4l2_int_device: Slave handle
- * @pdata: Board specific
- * @client: I2C client data
- * @id: Entry from I2C table
- * @ver: Chip version
- * @state: decoder state - detected or not-detected
- * @pix: Current pixel format
- * @num_fmts: Number of formats
- * @fmt_list: Format list
- * @current_std: Current standard
- * @num_stds: Number of standards
- * @std_list: Standards list
- */
-struct mt9v113_decoder {	
-	struct v4l2_int_device *v4l2_int_device;
-	const struct mt9v113_platform_data *pdata;
-	struct i2c_client *client;
-	struct i2c_device_id *id;
-	int ver;
-	enum mt9v113_state state;
-	struct v4l2_pix_format pix;
-	int num_fmts;
-	const struct v4l2_fmtdesc *fmt_list;
-	enum mt9v113_std current_std;
-	int num_stds;
-	struct mt9v113_std_info *std_list;
-};	
-/* MT9V113 register set for VGA mode */	
-static struct mt9v113_reg mt9v113_vga_reg[] = {
-	{TOK_WRITE, 0x098C, 0x2739},
-	{TOK_WRITE, 0x0990, 0x0000},
-	{TOK_WRITE, 0x098C, 0x273B},
-	{TOK_WRITE, 0x0990, 0x027F},
-	{TOK_WRITE, 0x098C, 0x273D},
-	{TOK_WRITE, 0x0990, 0x0000},
-	{TOK_WRITE, 0x098C, 0x273F},
-	{TOK_WRITE, 0x0990, 0x01DF},
-	{TOK_WRITE, 0x098C, 0x2703},
-	{TOK_WRITE, 0x0990, 0x0280},
-	{TOK_WRITE, 0x098C, 0x2705},
-	{TOK_WRITE, 0x0990, 0x01E0},
-	{TOK_WRITE, 0x098C, 0x2715},
-	{TOK_WRITE, 0x0990, 0x0001},
-	{TOK_WRITE, 0x098C, 0x2717},
-	{TOK_WRITE, 0x0990, 0x0026},
-	{TOK_WRITE, 0x098C, 0x2719},
-	{TOK_WRITE, 0x0990, 0x001A},
-	{TOK_WRITE, 0x098C, 0x271B},
-	{TOK_WRITE, 0x0990, 0x006B},
-	{TOK_WRITE, 0x098C, 0x271D},
-	{TOK_WRITE, 0x0990, 0x006B},
-	{TOK_WRITE, 0x098C, 0x271F},
-	{TOK_WRITE, 0x0990, 0x0202},
-	{TOK_WRITE, 0x098C, 0x2721},
-	{TOK_WRITE, 0x0990, 0x034A},
-	{TOK_WRITE, 0x098C, 0xA103},
-	{TOK_WRITE, 0x0990, 0x0005},
-	{TOK_DELAY, 0, 100},
-	{TOK_TERM, 0, 0},
-};	
-/* MT9V113 default register values */	
-static struct mt9v113_reg mt9v113_reg_list[] = {	
-	{TOK_WRITE, 0x0018, 0x4028},
-	{TOK_DELAY, 0, 100},
-	{TOK_WRITE, 0x001A, 0x0011},
-	{TOK_WRITE, 0x001A, 0x0010},
-	{TOK_WRITE, 0x0018, 0x4028},
-	{TOK_DELAY, 0, 100},
-	{TOK_WRITE, 0x098C, 0x02F0},
-	{TOK_WRITE, 0x0990, 0x0000},
-	{TOK_WRITE, 0x098C, 0x02F2},
-	{TOK_WRITE, 0x0990, 0x0210},
-	{TOK_WRITE, 0x098C, 0x02F4},
-	{TOK_WRITE, 0x0990, 0x001A},
-	{TOK_WRITE, 0x098C, 0x2145},
-	{TOK_WRITE, 0x0990, 0x02F4},
-	{TOK_WRITE, 0x098C, 0xA134},
-	{TOK_WRITE, 0x0990, 0x0001},
-	{TOK_WRITE, 0x31E0, 0x0001},
-	{TOK_WRITE, 0x001A, 0x0210},
-	{TOK_WRITE, 0x001E, 0x0777},
-	{TOK_WRITE, 0x0016, 0x42DF},
-	{TOK_WRITE, 0x0014, 0x2145},
-	{TOK_WRITE, 0x0010, 0x0234},
-	{TOK_WRITE, 0x0012, 0x0000},
-	{TOK_WRITE, 0x0014, 0x244B},
-	{TOK_WRITE, 0x0014, 0x304B},
-	{TOK_DELAY, 0, 100},
-	{TOK_WRITE, 0x0014, 0xB04A},
-	{TOK_WRITE, 0x098C, 0xAB1F},
-	{TOK_WRITE, 0x0990, 0x00C7},
-	{TOK_WRITE, 0x098C, 0xAB31},
-	{TOK_WRITE, 0x0990, 0x001E},
-	{TOK_WRITE, 0x098C, 0x274F},
-	{TOK_WRITE, 0x0990, 0x0004},
-	{TOK_WRITE, 0x098C, 0x2741},
-	{TOK_WRITE, 0x0990, 0x0004},
-	{TOK_WRITE, 0x098C, 0xAB20},
-	{TOK_WRITE, 0x0990, 0x0054},
-	{TOK_WRITE, 0x098C, 0xAB21},
-	{TOK_WRITE, 0x0990, 0x0046},
-	{TOK_WRITE, 0x098C, 0xAB22},
-	{TOK_WRITE, 0x0990, 0x0002},
-	{TOK_WRITE, 0x098C, 0xAB24},
-	{TOK_WRITE, 0x0990, 0x0005},
-	{TOK_WRITE, 0x098C, 0x2B28},
-	{TOK_WRITE, 0x0990, 0x170C},
-	{TOK_WRITE, 0x098C, 0x2B2A},
-	{TOK_WRITE, 0x0990, 0x3E80},
-	{TOK_WRITE, 0x3210, 0x09A8},
-	{TOK_WRITE, 0x098C, 0x2306},
-	{TOK_WRITE, 0x0990, 0x0315},
-	{TOK_WRITE, 0x098C, 0x2308},
-	{TOK_WRITE, 0x0990, 0xFDDC},
-	{TOK_WRITE, 0x098C, 0x230A},
-	{TOK_WRITE, 0x0990, 0x003A},
-	{TOK_WRITE, 0x098C, 0x230C},
-	{TOK_WRITE, 0x0990, 0xFF58},
-	{TOK_WRITE, 0x098C, 0x230E},
-	{TOK_WRITE, 0x0990, 0x02B7},
-	{TOK_WRITE, 0x098C, 0x2310},
-	{TOK_WRITE, 0x0990, 0xFF31},
-	{TOK_WRITE, 0x098C, 0x2312},
-	{TOK_WRITE, 0x0990, 0xFF4C},
-	{TOK_WRITE, 0x098C, 0x2314},
-	{TOK_WRITE, 0x0990, 0xFE4C},
-	{TOK_WRITE, 0x098C, 0x2316},
-	{TOK_WRITE, 0x0990, 0x039E},
-	{TOK_WRITE, 0x098C, 0x2318},
-	{TOK_WRITE, 0x0990, 0x001C},
-	{TOK_WRITE, 0x098C, 0x231A},
-	{TOK_WRITE, 0x0990, 0x0039},
-	{TOK_WRITE, 0x098C, 0x231C},
-	{TOK_WRITE, 0x0990, 0x007F},
-	{TOK_WRITE, 0x098C, 0x231E},
-	{TOK_WRITE, 0x0990, 0xFF77},
-	{TOK_WRITE, 0x098C, 0x2320},
-	{TOK_WRITE, 0x0990, 0x000A},
-	{TOK_WRITE, 0x098C, 0x2322},
-	{TOK_WRITE, 0x0990, 0x0020},
-	{TOK_WRITE, 0x098C, 0x2324},
-	{TOK_WRITE, 0x0990, 0x001B},
-	{TOK_WRITE, 0x098C, 0x2326},
-	{TOK_WRITE, 0x0990, 0xFFC6},
-	{TOK_WRITE, 0x098C, 0x2328},
-	{TOK_WRITE, 0x0990, 0x0086},
-	{TOK_WRITE, 0x098C, 0x232A},
-	{TOK_WRITE, 0x0990, 0x00B5},
-	{TOK_WRITE, 0x098C, 0x232C},
-	{TOK_WRITE, 0x0990, 0xFEC3},
-	{TOK_WRITE, 0x098C, 0x232E},
-	{TOK_WRITE, 0x0990, 0x0001},
-	{TOK_WRITE, 0x098C, 0x2330},
-	{TOK_WRITE, 0x0990, 0xFFEF},
-	{TOK_WRITE, 0x098C, 0xA348},
-	{TOK_WRITE, 0x0990, 0x0008},
-	{TOK_WRITE, 0x098C, 0xA349},
-	{TOK_WRITE, 0x0990, 0x0002},
-	{TOK_WRITE, 0x098C, 0xA34A},
-	{TOK_WRITE, 0x0990, 0x0090},
-	{TOK_WRITE, 0x098C, 0xA34B},
-	{TOK_WRITE, 0x0990, 0x00FF},
-	{TOK_WRITE, 0x098C, 0xA34C},
-	{TOK_WRITE, 0x0990, 0x0075},
-	{TOK_WRITE, 0x098C, 0xA34D},
-	{TOK_WRITE, 0x0990, 0x00EF},
-	{TOK_WRITE, 0x098C, 0xA351},
-	{TOK_WRITE, 0x0990, 0x0000},
-	{TOK_WRITE, 0x098C, 0xA352},
-	{TOK_WRITE, 0x0990, 0x007F},
-	{TOK_WRITE, 0x098C, 0xA354},
-	{TOK_WRITE, 0x0990, 0x0043},
-	{TOK_WRITE, 0x098C, 0xA355},
-	{TOK_WRITE, 0x0990, 0x0001},
-	{TOK_WRITE, 0x098C, 0xA35D},
-	{TOK_WRITE, 0x0990, 0x0078},
-	{TOK_WRITE, 0x098C, 0xA35E},
-	{TOK_WRITE, 0x0990, 0x0086},
-	{TOK_WRITE, 0x098C, 0xA35F},
-	{TOK_WRITE, 0x0990, 0x007E},
-	{TOK_WRITE, 0x098C, 0xA360},
-	{TOK_WRITE, 0x0990, 0x0082},
-	{TOK_WRITE, 0x098C, 0x2361},
-	{TOK_WRITE, 0x0990, 0x0040},
-	{TOK_WRITE, 0x098C, 0xA363},	
-	{TOK_WRITE, 0x0990, 0x00D2},
-	{TOK_WRITE, 0x098C, 0xA364},
-	{TOK_WRITE, 0x0990, 0x00F6},
-	{TOK_WRITE, 0x098C, 0xA302},
-	{TOK_WRITE, 0x0990, 0x0000},
-	{TOK_WRITE, 0x098C, 0xA303},
-	{TOK_WRITE, 0x0990, 0x00EF},
-	{TOK_WRITE, 0x098C, 0xAB20},
-	{TOK_WRITE, 0x0990, 0x0024},
-	{TOK_WRITE, 0x098C, 0xA103},
-	{TOK_WRITE, 0x0990, 0x0006},
-	{TOK_DELAY, 0, 100},
-	{TOK_WRITE, 0x098C, 0xA103},
-	{TOK_WRITE, 0x0990, 0x0005},
-	{TOK_DELAY, 0, 100},
-	{TOK_WRITE, 0x098C, 0x222D},
-	{TOK_WRITE, 0x0990, 0x0081},
-	{TOK_WRITE, 0x098C, 0xA408},
-	{TOK_WRITE, 0x0990, 0x001F},
-	{TOK_WRITE, 0x098C, 0xA409},
-	{TOK_WRITE, 0x0990, 0x0021},
-	{TOK_WRITE, 0x098C, 0xA40A},
-	{TOK_WRITE, 0x0990, 0x0025},
-	{TOK_WRITE, 0x098C, 0xA40B},
-	{TOK_WRITE, 0x0990, 0x0027},
-	{TOK_WRITE, 0x098C, 0x2411},
-	{TOK_WRITE, 0x0990, 0x0081},
-	{TOK_WRITE, 0x098C, 0x2413},
-	{TOK_WRITE, 0x0990, 0x009A},
-	{TOK_WRITE, 0x098C, 0x2415},
-	{TOK_WRITE, 0x0990, 0x0081},
-	{TOK_WRITE, 0x098C, 0x2417},
-	{TOK_WRITE, 0x0990, 0x009A},
-	{TOK_WRITE, 0x098C, 0xA404},
-	{TOK_WRITE, 0x0990, 0x0010},
-	{TOK_WRITE, 0x098C, 0xA40D},
-	{TOK_WRITE, 0x0990, 0x0002},
-	{TOK_WRITE, 0x098C, 0xA40E},
-	{TOK_WRITE, 0x0990, 0x0003},
-	{TOK_WRITE, 0x098C, 0xA410},
-	{TOK_WRITE, 0x0990, 0x000A},
-	{TOK_WRITE, 0x098C, 0xA20C},
-	{TOK_WRITE, 0x0990, 0x0003},
-	{TOK_WRITE, 0x098C, 0xA20B},
-	{TOK_WRITE, 0x0990, 0x0000},
-	{TOK_WRITE, 0x098C, 0xA215},
-	{TOK_WRITE, 0x0990, 0x0004},
-	{TOK_WRITE, 0x098C, 0xA103},	
-	{TOK_WRITE, 0x0990, 0x0006},
-	{TOK_DELAY, 0, 100},
-	/* test pattern all white*/
-	/* {TOK_WRITE, 0x098C, 0xA766},
-	{TOK_WRITE, 0x0990, 0x0001},
-	*/
-	{TOK_WRITE, 0x098C, 0xA103},
-	{TOK_WRITE, 0x0990, 0x0005},
-	{TOK_DELAY, 0, 100},
-	{TOK_TERM, 0, 0},
-};	
-/* List of image formats supported by mt9v113	
- * Currently we are using 8 bit mode only, but can be
- * extended to 10/20 bit mode.
- */
-static const struct v4l2_fmtdesc mt9v113_fmt_list[] = {	
-	{
-	 .index = 0,
-	 .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-	 .flags = 0,
-	 .description = "8-bit UYVY 4:2:2 Format",
-	 .pixelformat = V4L2_PIX_FMT_UYVY,
-	},
-};	
-/*	
- * Supported standards -	
- *
- * Currently supports two standards only, need to add support for rest of the	
- * modes, like SECAM, etc...
- */
-static struct mt9v113_std_info mt9v113_std_list[] = {	
-	/* Standard: STD_NTSC_MJ */
-	[MT9V113_STD_VGA] = {
-	 .width = VGA_NUM_ACTIVE_PIXELS,
-	 .height = VGA_NUM_ACTIVE_LINES,
-	 .video_std = MT9V113_IMAGE_STD_VGA,
-	 .standard = {
-		      .index = 0,
-		      .id = MT9V113_IMAGE_STD_VGA,
-		      .name = "VGA",
-		      .frameperiod = {1001, 30000},
-		      .framelines = 480
-		     },
-	/* Standard: STD_PAL_BDGHIN */
-	},
-	[MT9V113_STD_QVGA] = {
-	 .width = QVGA_NUM_ACTIVE_PIXELS,
-	 .height = QVGA_NUM_ACTIVE_LINES,
-	 .video_std = MT9V113_IMAGE_STD_QVGA,
-	 .standard = {
-		      .index = 1,
-		      .id = MT9V113_IMAGE_STD_QVGA,
-		      .name = "QVGA",
-		      .frameperiod = {1001, 30000},
-		      .framelines = 320
-		     },
-	},
-	/* Standard: need to add for additional standard */
+#include <media/v4l2-ctrls.h>
+#include <media/v4l2-device.h>
+#include <media/v4l2-subdev.h>
+
+#define MT9V113_PIXEL_ARRAY_WIDTH        640
+#define MT9V113_PIXEL_ARRAY_HEIGHT        480
+
+#define        MT9V113_ROW_START_MIN                0
+#define        MT9V113_ROW_START_MAX                480
+#define        MT9V113_ROW_START_DEF                0
+#define        MT9V113_COLUMN_START_MIN        0
+#define        MT9V113_COLUMN_START_MAX        640
+#define        MT9V113_COLUMN_START_DEF        0
+#define        MT9V113_WINDOW_HEIGHT_MIN        2
+#define        MT9V113_WINDOW_HEIGHT_MAX        480
+#define        MT9V113_WINDOW_HEIGHT_DEF        480
+#define        MT9V113_WINDOW_WIDTH_MIN        2
+#define        MT9V113_WINDOW_WIDTH_MAX        640
+#define        MT9V113_WINDOW_WIDTH_DEF        640
+#define MT9V113_ENABLE                        1
+#define MT9V113_DISABLE                        0
+
+#define MT9V113_CHIP_ID_REG                0x0000
+#define MT9V113_CHIP_ID                        0x2280
+
+#define MT9V113_PLL_CONTROL                0x0014
+#define MT9V113_PLL_DIVIDERS                0x0010
+#define MT9V113_PLL_P_DIVIDERS                0x0012
+
+#define MT9V113_RESET_AND_MISC_CONTROL        0x001A
+#define MT9V113_STANDBY_CONTROL                0x0018
+#define MT9V113_CLOCKS_CONTROL                0x0016
+#define MT9V113_PAD_SLEW                0x001E
+#define MT9V113_MCU_ADDRESS                0x098C
+#define MT9V113_MCU_DATA_0                0x0990
+#define MT9V113_PIX_DEF_ID                0x31E0
+#define MT9V113_LSC_START1                0x2703
+#define MT9V113_LSC_START2                0x270D
+#define MT9V113_LSC_START3                0x2747
+#define MT9V113_LSC_START4                0xA408
+#define MT9V113_LSC_START5                0x2411
+#define MT9V113_COLOR_PIPELINE_CONTROL        0x3210
+#define MT9V113_AWB_ADDR_1                0x2306
+#define MT9V113_AWB_ADDR_2                0xA348
+#define MT9V113_AWB_ADDR_3                0xA35D
+#define MT9V113_AWB_POSITION_MIN        0xA351
+#define MT9V113_AWB_POSITION_MAX        0xA352
+#define MT9V113_AWB_SATURATION                0xA354
+#define MT9V113_AWB_MODE                0xA355
+#define MT9V113_AWB_CNT_PXL_TH                0x2361
+#define MT9V113_AWB_TG_MIN0                0xA363
+#define MT9V113_AWB_TG_MAX0                0xA364
+#define MT9V113_AWB_WINDOW_POS                0xA302
+#define MT9V113_AWB_WINDOW_SIZE                0xA303
+
+#define MT9V113_MODE_DEC_CTRL_B                0x274F
+#define MT9V113_MODE_DEC_CTRL_A                0x2741
+#define MT9V113_LLMODE                        0xAB1F
+#define MT9V113_NR_STOP_G                0xAB31
+#define MT9V113_LL_SAT1                        0xAB20
+#define MT9V113_LL_INTERPTHRESH1        0xAB21
+#define MT9V113_LL_APCORR1                0xAB22
+#define MT9V113_LL_SAT2                        0xAB24
+#define MT9V113_LL_BRIGHTNESSSTART        0x2B28
+#define MT9V113_LL_BRIGHTNESSSTOP        0x2B2A
+
+#define MT9V113_SEQ_CMD                        0x2103
+#define MT9V113_REFRESH_MODE                0x0006
+#define MT9V113_REFRESH                        0x0005
+#define MT9V113_CROP_X0_A                0x2739
+#define MT9V113_CROP_X1_A                0x273B
+#define MT9V113_CROP_Y0_A                0x273D
+#define MT9V113_CROP_Y1_A                0x273F
+#define MT9V113_OUTPUT_WIDTH_A                0x2703
+#define MT9V113_OUTPUT_HEIGHT_A                0x2705
+#define MT9V113_CROP_X0_B                0x2747
+#define MT9V113_CROP_X1_B                0x2749
+#define MT9V113_CROP_Y0_B                0x274B
+#define MT9V113_CROP_Y1_B                0x274D
+#define MT9V113_OUTPUT_WIDTH_B                0x2707
+#define MT9V113_OUTPUT_HEIGHT_B                0x2709
+#define MT9V113_READ_MODE_A                0x2717
+#define MT9V113_READ_MODE_B                0x272D
+#define MT9V113_SPEC_EFFECTS_A                0x2759
+#define MT9V113_SPEC_EFFECTS_B                0x275B
+#define MT9V113_PATTERN_SELECT                0x3290
+#define MT9V113_8BIT_WALKING1                0x0020
+#define MT9V113_10BIT_WALKING1                0x0060
+
+#undef MT9V113_I2C_DEBUG
+
+struct mt9v113_frame_size {
+        u16 width;
+        u16 height;
 };
-/*	
- * Control structure for Auto Gain	
- *     This is temporary data, will get replaced once
- *     v4l2_ctrl_query_fill supports it.
- */
-static const struct v4l2_queryctrl mt9v113_autogain_ctrl = {	
-	.id = V4L2_CID_AUTOGAIN,
-	.name = "Gain, Automatic",
-	.type = V4L2_CTRL_TYPE_BOOLEAN,
-	.minimum = 0,
-	.maximum = 1,
-	.step = 1,
-	.default_value = 1,
+
+struct mt9v113_priv {
+        struct v4l2_subdev subdev;
+        struct media_pad pad;
+        struct v4l2_rect crop;  /* Sensor window */
+        struct v4l2_mbus_framefmt format;
+        struct v4l2_ctrl_handler ctrls;
+        struct mt9v113_platform_data *pdata;
+        struct mutex power_lock; /* lock to protect power_count */
+        struct mt9v113_pll_divs *pll;
+        int power_count;
 };
-const struct v4l2_fract mt9v113_frameintervals[] = {	
-	{  .numerator = 1, .denominator = 10 }
-};	
-static int mt9v113_read_reg(struct i2c_client *client, unsigned short reg)
-{	
-	int err = 0;	
-	struct i2c_msg msg[1];
-	unsigned char data[2];
-	unsigned short val = 0;
-	if (!client->adapter) {
-		err = -ENODEV;
-		return err;
-	}else {
-		/* TODO: addr should be set up where else client->addr */
-		msg->addr = MT9V113_I2C_ADDR;
-		msg->flags = 0;
-		msg->len = I2C_TWO_BYTE_TRANSFER;
-		msg->buf = data;
-		data[0] = (reg & I2C_TXRX_DATA_MASK_UPPER) >>
-			    I2C_TXRX_DATA_SHIFT;
-		data[1] = (reg & I2C_TXRX_DATA_MASK);
-		err = i2c_transfer(client->adapter, msg, 1);
-		if (err >= 0) {
-			msg->flags = I2C_M_RD;
-			msg->len = I2C_TWO_BYTE_TRANSFER;	/* 2 byte read */
-			err = i2c_transfer(client->adapter, msg, 1);
-			if (err >= 0) {
-				val = ((data[0] & I2C_TXRX_DATA_MASK)
-					<< I2C_TXRX_DATA_SHIFT)
-				    | (data[1] & I2C_TXRX_DATA_MASK);
-			}
-		}
-	}
-	return (int)(0x0000ffff & val);
-}
-static int mt9v113_write_reg(struct i2c_client *client, unsigned short reg, unsigned short val)	
-{
-	int err = 0;	
-	int trycnt = 0;
-	struct i2c_msg msg[1];
-	unsigned char data[4];
-	err = -1;
-	v4l_dbg(1, debug, client,
-		 "mt9v113_write_reg reg=0x%x, val=0x%x\n",
-		 reg,val);
-	while ((err < 0) && (trycnt < I2C_RETRY_COUNT)) {
-		trycnt++;
-		if (!client->adapter) {
-			err = -ENODEV;
-		} else {
-			/* TODO:addr should be set up where else client->addr */
-			msg->addr = MT9V113_I2C_ADDR;
-			msg->flags = 0;
-			msg->len = I2C_FOUR_BYTE_TRANSFER;
-			msg->buf = data;
-			data[0] = (reg & I2C_TXRX_DATA_MASK_UPPER) >>
-			    I2C_TXRX_DATA_SHIFT;
-			data[1] = (reg & I2C_TXRX_DATA_MASK);
-			data[2] = (val & I2C_TXRX_DATA_MASK_UPPER) >>
-			    I2C_TXRX_DATA_SHIFT;
-			data[3] = (val & I2C_TXRX_DATA_MASK);
-			err = i2c_transfer(client->adapter, msg, 1);
-		}
-	}
-	if (err < 0)
-		printk(KERN_INFO "\n I2C write failed");
-	return err;
-}	
-/*	
- * mt9v113_write_regs : Initializes a list of registers	
- *		if token is TOK_TERM, then entire write operation terminates
- *		if token is TOK_DELAY, then a delay of 'val' msec is introduced
- *		if token is TOK_SKIP, then the register write is skipped
- *		if token is TOK_WRITE, then the register write is performed
+
+static unsigned int mt9v113_lsc1[4] = {
+        0x0280, 0x01E0, 0x0280, 0x01E0
+};
+
+static unsigned int mt9v113_lsc2[26] = {
+        0x0000, 0x0000, 0x01E7, 0x0287, 0x0001, 0x0026, 0x001A, 0x006B,
+        0x006B, 0x0206, 0x0363, 0x0000, 0x0000, 0x01E7, 0x0287, 0x0001,
+        0x0026, 0x001A, 0x006B, 0x006B, 0x0206, 0x0364, 0x0000, 0x027F,
+        0x0000, 0x01DF
+};
+
+static unsigned int mt9v113_lsc3[4] = {
+        0x0000, 0x027F,        0x0000, 0x01DF
+};
+        
+static unsigned int mt9v113_lsc4[4] = {
+        0x1F, 0x21, 0x26, 0x28
+};
+
+static unsigned int mt9v113_lsc5[4] = {
+        0x0082, 0x009C, 0x0082, 0x009C
+};
+
+static unsigned int mt9v113_awb_1[22] = {
+        0x0315, 0xFDDC, 0x003A, 0xFF58, 0x02B7, 0xFF31, 0xFF4C, 0xFE4C,
+        0x039E, 0x001C, 0x0039, 0x007F, 0xFF77, 0x000A, 0x0020, 0x001B,
+        0xFFC6, 0x0086, 0x00B5, 0xFEC3, 0x0001, 0xFFEF
+};
+
+static unsigned int mt9v113_awb_2[6] = {
+        0x08, 0x02, 0x90, 0xFF, 0x75, 0xEF
+};
+
+static unsigned int mt9v113_awb_3[4] = {
+        0x78, 0x86, 0x7E, 0x82
+};
+
+/************************************************************************
+                        Helper Functions
+************************************************************************/
+/**
+ * to_mt9v113 - A helper function which returns pointer to the
+ * private data structure
+ * @client: pointer to i2c client
  *
- * reglist - list of registers to be written	
- * Returns zero if successful, or non-zero otherwise.
  */
-static int mt9v113_write_regs(struct i2c_client *client,	
-			      const struct mt9v113_reg reglist[])
+static struct mt9v113_priv *to_mt9v113(const struct i2c_client *client)
 {
-	int err;	
-	const struct mt9v113_reg *next = reglist;
-	for (; next->token != TOK_TERM; next++) {
-		if (next->token == TOK_DELAY) {
-			msleep(next->val);
-			continue;
-		}
-		if (next->token == TOK_SKIP)
-			continue;
-		err = mt9v113_write_reg(client, next->reg, next->val);
-		if (err < 0) {
-			v4l_err(client, "Write failed. Err[%d]\n", err);
-			return err;
-		}
-	}
-	return 0;
-}	
-/*	
- * mt9v113_get_current_std:	
- * Returns the current standard
- */
-static enum mt9v113_std mt9v113_get_current_std(struct mt9v113_decoder	
-						*decoder)
-{
-	return MT9V113_STD_VGA;	
-}	
-/*	
- * Configure the mt9v113 with the current register settings	
- * Returns zero if successful, or non-zero otherwise.
- */
-static int mt9v113_configure(struct mt9v113_decoder *decoder)	
-{
-	int err;	
-	/* common register initialization */
-	err =
-	    mt9v113_write_regs(decoder->client, mt9v113_reg_list);
-	if (err)
-		return err;
-	return 0;
+        return container_of(i2c_get_clientdata(client),
+                        struct mt9v113_priv, subdev);
 }
 
-/*	
- * Configure the MT9V113 to VGA mode	
- * Returns zero if successful, or non-zero otherwise.
- */
-static int mt9v113_vga_mode(struct mt9v113_decoder *decoder)	
-{
-	int err;	
-	err =
-	    mt9v113_write_regs(decoder->client, mt9v113_vga_reg);
-	if (err)
-		return err;
-	return 0;
-}
-
-/*	
- * ioctl_enum_framesizes - V4L2 sensor if handler for vidioc_int_enum_framesizes	
- * @s: pointer to standard V4L2 device structure
- * @frms: pointer to standard V4L2 framesizes enumeration structure
+/**
+ * mt9v113_read - reads the data from the given register
+ * @client: pointer to i2c client
+ * @addr: address of the register which is to be read
  *
- * Returns possible framesizes depending on choosen pixel format	
  */
-static int ioctl_enum_framesizes(struct v4l2_int_device *s,	
-					struct v4l2_frmsizeenum *frms)
+static int mt9v113_read(struct i2c_client *client, u16 addr)
 {
-	struct mt9v113_decoder *decoder = s->priv;	
-	int ifmt;
-	for (ifmt = 0; ifmt < decoder->num_fmts; ifmt++) {
-		if (frms->pixel_format == decoder->fmt_list[ifmt].pixelformat)
-			break;
-	}
-	/* Is requested pixelformat not found on sensor? */
-	if (ifmt == decoder->num_fmts)
-		return -EINVAL;
-	
-	/* Do we already reached all discrete framesizes? */	
-	if (frms->index >= decoder->num_stds)
-		return -EINVAL;
-	frms->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-	frms->discrete.width = decoder->std_list[frms->index].width;
-	frms->discrete.height = decoder->std_list[frms->index].height;
+        struct i2c_msg msg[2];
+        u8 buf[2];
+        u16 __addr;
+        u16 ret;
 
-	return 0;
-	
-}
-	
-static int ioctl_enum_frameintervals(struct v4l2_int_device *s,
-	
-					struct v4l2_frmivalenum *frmi)
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-	int ifmt;
+        /* 16 bit addressable register */
+        __addr = cpu_to_be16(addr);
 
-	if (frmi->index >= 1)	
-		return -EINVAL;
-	
-	for (ifmt = 0; ifmt < decoder->num_fmts; ifmt++) {	
-		if (frmi->pixel_format == decoder->fmt_list[ifmt].pixelformat)
-			break;
-	}
-	/* Is requested pixelformat not found on sensor? */
-	if (ifmt == decoder->num_fmts)
-		return -EINVAL;
+        msg[0].addr  = client->addr;
+        msg[0].flags = 0;
+        msg[0].len   = 2;
+        msg[0].buf   = (u8 *)&__addr;
 
-	if (frmi->index >= ARRAY_SIZE(mt9v113_frameintervals))
-		return -EINVAL;
-	frmi->type = V4L2_FRMSIZE_TYPE_DISCRETE;
-	frmi->discrete.numerator =
-		mt9v113_frameintervals[frmi->index].numerator;
-	frmi->discrete.denominator =
-		mt9v113_frameintervals[frmi->index].denominator;
-	return 0;
+        msg[1].addr  = client->addr;
+        msg[1].flags = I2C_M_RD; /* 1 */
+        msg[1].len   = 2;
+        msg[1].buf   = buf;
+
+        /*
+        * if return value of this function is < 0,
+        * it means error.
+        * else, under 16bit is valid data.
+        */
+        ret = i2c_transfer(client->adapter, msg, 2);
+
+        if (ret < 0) {
+                v4l_err(client, "Read from offset 0x%x error %d", addr, ret);
+                return ret;
+        }
+
+        return (buf[0] << 8) | buf[1];
 }
 
-/*	
- * Detect if an mt9v113 is present, and if so which revision.	
- * A device is considered to be detected if the chip ID (LSB and MSB)
- * registers match the expected values.
- * Any value of the rom version register is accepted.
- * Returns ENODEV error number if no device is detected, or zero
- * if a device is detected.
- */
-static int mt9v113_detect(struct mt9v113_decoder *decoder)	
-{
-	unsigned short val=0;	
-
-	val = mt9v113_read_reg(decoder->client, REG_CHIP_ID);
-
-	v4l_dbg(1, debug, decoder->client, "chip id detected 0x%x\n", val);	
-
-	if (MT9V113_CHIP_ID != val) {	
-		/* We didn't read the values we expected, so this must not be
-		 * MT9V113.
-		 */
-		v4l_err(decoder->client,
-			"chip id mismatch read 0x%x, expecting 0x%x\n", val, MT9V113_CHIP_ID);
-		return -ENODEV;
-	}
-
-	decoder->ver = val;
-	decoder->state = STATE_DETECTED;
-	v4l_info(decoder->client,
-			"%s found at 0x%x (%s)\n", decoder->client->name,
-			decoder->client->addr << 1,
-			decoder->client->adapter->name);
-	
-	return 0;	
-}
-
-/*	
- * Following are decoder interface functions implemented by	
- * mt9v113 decoder driver.
- */
-
-/*	
- * ioctl_querystd - V4L2 decoder interface handler for VIDIOC_QUERYSTD ioctl	
- * @s: pointer to standard V4L2 device structure
- * @std_id: standard V4L2 std_id ioctl enum
+/**
+ * mt9v113_write - writes the data into the given register
+ * @client: pointer to i2c client
+ * @addr: address of the register in which to write
+ * @data: data to be written into the register
  *
- * Returns the current standard detected by mt9v113. If no active input is	
- * detected, returns -EINVAL
  */
-static int ioctl_querystd(struct v4l2_int_device *s, v4l2_std_id *std_id)	
+static int mt9v113_write(struct i2c_client *client, u16 addr,
+                                u16 data)
 {
-	struct mt9v113_decoder *decoder = s->priv;	
-	enum mt9v113_std current_std;
+        struct i2c_msg msg;
+        u8 buf[4];
+        u16 __addr, __data;
+        int ret;
 
-	if (std_id == NULL)	
-		return -EINVAL;
+        /* 16-bit addressable register */
 
-	/* get the current standard */
-	current_std = mt9v113_get_current_std(decoder);
-	if (current_std == MT9V113_IMAGE_STD_INVALID)
-		return -EINVAL;
+        __addr = cpu_to_be16(addr);
+        __data = cpu_to_be16(data);
 
-	decoder->current_std = current_std;	
-	*std_id = decoder->std_list[current_std].standard.id;	
-	v4l_dbg(1, debug, decoder->client, "Current STD: %s",
-			decoder->std_list[current_std].standard.name);
-	return 0;
-}
+        buf[0] = __addr & 0xff;
+        buf[1] = __addr >> 8;
+        buf[2] = __data & 0xff;
+        buf[3] = __data >> 8;
+        msg.addr  = client->addr;
+        msg.flags = 0;
+        msg.len   = 4;
+        msg.buf   = buf;
 
-/*	
- * ioctl_s_std - V4L2 decoder interface handler for VIDIOC_S_STD ioctl
- * @s: pointer to standard V4L2 device structure
- * @std_id: standard V4L2 v4l2_std_id ioctl enum
- *
- * If std_id is supported, sets the requested standard. Otherwise, returns	
- * -EINVAL
- */
-static int ioctl_s_std(struct v4l2_int_device *s, v4l2_std_id *std_id)	
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-	int err, i;
-
-	if (std_id == NULL)	
-		return -EINVAL;
-
-	for (i = 0; i < decoder->num_stds; i++)	
-		if (*std_id & decoder->std_list[i].standard.id)
-			break;
-
-	if ((i == decoder->num_stds) || (i == MT9V113_STD_INVALID))	
-		return -EINVAL;
-	err = mt9v113_write_reg(decoder->client, REG_VIDEO_STD,
-				decoder->std_list[i].video_std);
-	if (err)
-		return err;
-	decoder->current_std = i;
-	mt9v113_reg_list[REG_VIDEO_STD].val = decoder->std_list[i].video_std;
-
-	v4l_dbg(1, debug, decoder->client, "Standard set to: %s",	
-			decoder->std_list[i].standard.name);
-	return 0;
-}
-
-/*	
- * ioctl_s_routing - V4L2 decoder interface handler for VIDIOC_S_INPUT ioctl	
- * @s: pointer to standard V4L2 device structure
- * @index: number of the input
- *
- * If index is valid, selects the requested input. Otherwise, returns -EINVAL if	
- * the input is not supported or there is no active signal present in the
- * selected input.
- */
-static int ioctl_s_routing(struct v4l2_int_device *s,	
-				struct v4l2_routing *route)
-{
-	return 0;	
-}
-
-/*	
- * ioctl_queryctrl - V4L2 decoder interface handler for VIDIOC_QUERYCTRL ioctl	
- * @s: pointer to standard V4L2 device structure
- * @qctrl: standard V4L2 v4l2_queryctrl structure
- *
- * If the requested control is supported, returns the control information.	
- * Otherwise, returns -EINVAL if the control is not supported.
- */
-static int	
-ioctl_queryctrl(struct v4l2_int_device *s, struct v4l2_queryctrl *qctrl)
-{
-
-	struct mt9v113_decoder *decoder = s->priv;
-	int err = -EINVAL;
-
-	if (qctrl == NULL)	
-		return err;
-
-	switch (qctrl->id) {	
-	case V4L2_CID_BRIGHTNESS:
-		/* Brightness supported is same as standard one (0-255),
-		 * so make use of standard API provided.
-		 */
-		err = v4l2_ctrl_query_fill(qctrl, 0, 255, 1, 128);
-		break;
-	case V4L2_CID_CONTRAST:
-	case V4L2_CID_SATURATION:
-		/* Saturation and Contrast supported is -
-		 *	Contrast: 0 - 255 (Default - 128)
-		 *	Saturation: 0 - 255 (Default - 128)
-		 */
-		err = v4l2_ctrl_query_fill(qctrl, 0, 255, 1, 128);
-		break;
-	case V4L2_CID_HUE:
-		/* Hue Supported is -
-		 *	Hue - -180 - +180 (Default - 0, Step - +180)
-		 */
-		err = v4l2_ctrl_query_fill(qctrl, -180, 180, 180, 0);
-		break;
-	case V4L2_CID_AUTOGAIN:
-		/* Autogain is either 0 or 1*/
-		memcpy(qctrl, &mt9v113_autogain_ctrl,
-				sizeof(struct v4l2_queryctrl));
-		err = 0;
-		break;
-	default:
-		v4l_err(decoder->client,
-			"invalid control id %d\n", qctrl->id);
-		return err;
-	}
-
-	v4l_dbg(1, debug, decoder->client,	
-			"Query Control: %s : Min - %d, Max - %d, Def - %d",
-			qctrl->name,	
-			qctrl->minimum,
-			qctrl->maximum,
-			qctrl->default_value);
-	return err;
-}
-	
-/*	
- * ioctl_g_ctrl - V4L2 decoder interface handler for VIDIOC_G_CTRL ioctl	
- * @s: pointer to standard V4L2 device structure
- * @ctrl: pointer to v4l2_control structure
- *
- * If the requested control is supported, returns the control's current	
- * value from the decoder. Otherwise, returns -EINVAL if the control is not
- * supported.
- */
-static int	
-ioctl_g_ctrl(struct v4l2_int_device *s, struct v4l2_control *ctrl)
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-
-	if (ctrl == NULL)
-		return -EINVAL;
-
-	switch (ctrl->id) {
-	case V4L2_CID_BRIGHTNESS:
-		ctrl->value = mt9v113_reg_list[REG_BRIGHTNESS].val;
-		break;
-	case V4L2_CID_CONTRAST:
-		ctrl->value = mt9v113_reg_list[REG_CONTRAST].val;
-		break;
-	case V4L2_CID_SATURATION:
-		ctrl->value = mt9v113_reg_list[REG_SATURATION].val;
-		break;
-	case V4L2_CID_HUE:
-		ctrl->value = mt9v113_reg_list[REG_HUE].val;
-		if (ctrl->value == 0x7F)
-			ctrl->value = 180;
-		else if (ctrl->value == 0x80)
-			ctrl->value = -180;
-		else
-			ctrl->value = 0;
-
-		break;
-	
-	case V4L2_CID_AUTOGAIN:	
-		ctrl->value = mt9v113_reg_list[REG_AFE_GAIN_CTRL].val;
-		if ((ctrl->value & 0x3) == 3)
-			ctrl->value = 1;
-		else
-			ctrl->value = 0;
-
-		break;	
-	default:
-		v4l_err(decoder->client,
-			"invalid control id %d\n", ctrl->id);
-		return -EINVAL;
-	}
-
-	v4l_dbg(1, debug, decoder->client,
-			"Get Control: ID - %d - %d",
-			ctrl->id, ctrl->value);
-	return 0;
-}
-
-/*	
- * ioctl_s_ctrl - V4L2 decoder interface handler for VIDIOC_S_CTRL ioctl	
- * @s: pointer to standard V4L2 device structure
- * @ctrl: pointer to v4l2_control structure
- *	
- * If the requested control is supported, sets the control's current	
- * value in HW. Otherwise, returns -EINVAL if the control is not supported.
- */
-static int	
-ioctl_s_ctrl(struct v4l2_int_device *s, struct v4l2_control *ctrl)
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-	int err = -EINVAL, value;
-
-	if (ctrl == NULL)	
-		return err;
-
-	value = (__s32) ctrl->value;
-
-	switch (ctrl->id) {	
-	case V4L2_CID_BRIGHTNESS:
-		if (ctrl->value < 0 || ctrl->value > 255) {	
-			v4l_err(decoder->client,
-					"invalid brightness setting %d\n",
-					ctrl->value);
-			return -ERANGE;
-		}
-		err = mt9v113_write_reg(decoder->client, REG_BRIGHTNESS,
-				value);
-		if (err)
-			return err;
-		mt9v113_reg_list[REG_BRIGHTNESS].val = value;
-		break;
-	case V4L2_CID_CONTRAST:
-		if (ctrl->value < 0 || ctrl->value > 255) {
-			v4l_err(decoder->client,
-					"invalid contrast setting %d\n",
-					ctrl->value);
-			return -ERANGE;
-		}
-		err = mt9v113_write_reg(decoder->client, REG_CONTRAST,
-				value);
-		if (err)
-			return err;
-		mt9v113_reg_list[REG_CONTRAST].val = value;
-		break;
-	case V4L2_CID_SATURATION:
-		if (ctrl->value < 0 || ctrl->value > 255) {
-			v4l_err(decoder->client,
-					"invalid saturation setting %d\n",
-					ctrl->value);
-			return -ERANGE;
-		}
-		err = mt9v113_write_reg(decoder->client, REG_SATURATION,
-				value);
-		if (err)
-			return err;
-		mt9v113_reg_list[REG_SATURATION].val = value;
-		break;
-	case V4L2_CID_HUE:
-		if (value == 180)
-			value = 0x7F;
-		else if (value == -180)
-			value = 0x80;
-		else if (value == 0)
-			value = 0;
-		else {
-			v4l_err(decoder->client,
-					"invalid hue setting %d\n",
-					ctrl->value);
-			return -ERANGE;
-		}
-		err = mt9v113_write_reg(decoder->client, REG_HUE,
-				value);
-		if (err)
-			return err;
-		mt9v113_reg_list[REG_HUE].val = value;
-		break;
-	case V4L2_CID_AUTOGAIN:
-		if (value == 1)
-			value = 0x0F;
-		else if (value == 0)
-			value = 0x0C;
-		else {
-			v4l_err(decoder->client,
-					"invalid auto gain setting %d\n",
-					ctrl->value);
-			return -ERANGE;
-		}
-		err = mt9v113_write_reg(decoder->client, REG_AFE_GAIN_CTRL,
-				value);
-		if (err)
-			return err;
-		mt9v113_reg_list[REG_AFE_GAIN_CTRL].val = value;
-		break;
-	default:
-		v4l_err(decoder->client,
-			"invalid control id %d\n", ctrl->id);
-		return err;
-	}
-
-	v4l_dbg(1, debug, decoder->client,	
-			"Set Control: ID - %d - %d",
-			ctrl->id, ctrl->value);
-	return err;
-}
-
-/*	
- * ioctl_enum_fmt_cap - Implement the CAPTURE buffer VIDIOC_ENUM_FMT ioctl	
- * @s: pointer to standard V4L2 device structure
- * @fmt: standard V4L2 VIDIOC_ENUM_FMT ioctl structure
- *
- * Implement the VIDIOC_ENUM_FMT ioctl to enumerate supported formats	
- */
-static int	
-ioctl_enum_fmt_cap(struct v4l2_int_device *s, struct v4l2_fmtdesc *fmt)
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-	int index;
-	if (fmt == NULL)
-		return -EINVAL;
-
-	index = fmt->index;	
-	if ((index >= decoder->num_fmts) || (index < 0))
-		return -EINVAL;	/* Index out of bound */
-
-	if (fmt->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)	
-		return -EINVAL;	/* only capture is supported */
-
-	memcpy(fmt, &decoder->fmt_list[index],	
-		sizeof(struct v4l2_fmtdesc));
-
-	v4l_dbg(1, debug, decoder->client,	
-			"Current FMT: index - %d (%s)",
-			decoder->fmt_list[index].index,
-			decoder->fmt_list[index].description);
-	return 0;
-}
-
-/*	
- * ioctl_try_fmt_cap - Implement the CAPTURE buffer VIDIOC_TRY_FMT ioctl	
- * @s: pointer to standard V4L2 device structure
- * @f: pointer to standard V4L2 VIDIOC_TRY_FMT ioctl structure
- *
- * Implement the VIDIOC_TRY_FMT ioctl for the CAPTURE buffer type. This	
- * ioctl is used to negotiate the image capture size and pixel format
- * without actually making it take effect.
- */
-static int	
-ioctl_try_fmt_cap(struct v4l2_int_device *s, struct v4l2_format *f)
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-	int ifmt;
-	struct v4l2_pix_format *pix;
-	enum mt9v113_std current_std;
-
-	if (f == NULL)	
-		return -EINVAL;
-
-	if (f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)	
-		f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-
-	pix = &f->fmt.pix;
-	
-	/* Calculate height and width based on current standard */	
-	current_std = mt9v113_get_current_std(decoder);
-	if (current_std == MT9V113_STD_INVALID)
-		return -EINVAL;
-	decoder->current_std = current_std;
-	pix->width = decoder->std_list[current_std].width;
-	pix->height = decoder->std_list[current_std].height;
-	for (ifmt = 0; ifmt < decoder->num_fmts; ifmt++) {
-		if (pix->pixelformat ==
-			decoder->fmt_list[ifmt].pixelformat)
-			break;
-	}
-	if (ifmt == decoder->num_fmts)
-		ifmt = 0;	/* None of the format matched, select default */
-	pix->pixelformat = decoder->fmt_list[ifmt].pixelformat;
-	pix->field = V4L2_FIELD_NONE;
-	pix->bytesperline = pix->width * 2;
-	pix->sizeimage = pix->bytesperline * pix->height;
-	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
-	pix->priv = 0;
-
-	v4l_dbg(1, debug, decoder->client,
-			"Try FMT: pixelformat - %s, bytesperline - %d"
-			"Width - %d, Height - %d",
-			decoder->fmt_list[ifmt].description, pix->bytesperline,
-			pix->width, pix->height);
-	return 0;
-}
-
-/*	
- * ioctl_s_fmt_cap - V4L2 decoder interface handler for VIDIOC_S_FMT ioctl	
- * @s: pointer to standard V4L2 device structure
- * @f: pointer to standard V4L2 VIDIOC_S_FMT ioctl structure
- *
- * If the requested format is supported, configures the HW to use that	
- * format, returns error code if format not supported or HW can't be
- * correctly configured.
- */
-static int	
-ioctl_s_fmt_cap(struct v4l2_int_device *s, struct v4l2_format *f)
-{
-	struct mt9v113_decoder *decoder = s->priv;
-	struct v4l2_pix_format *pix;
-	int rval;
-
-	if (f == NULL)	
-		return -EINVAL;
-
-	if (f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)	
-		return -EINVAL;	/* only capture is supported */
-
-	pix = &f->fmt.pix;
-	rval = ioctl_try_fmt_cap(s, f);
-	if (rval)
-		return rval;
-
-	decoder->pix = *pix;
-	
-	return rval;	
-}
-
-/*	
- * ioctl_g_fmt_cap - V4L2 decoder interface handler for ioctl_g_fmt_cap	
- * @s: pointer to standard V4L2 device structure
- * @f: pointer to standard V4L2 v4l2_format structure
- *
- * Returns the decoder's current pixel format in the v4l2_format	
- * parameter.
- */
-static int	
-ioctl_g_fmt_cap(struct v4l2_int_device *s, struct v4l2_format *f)
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-	if (f == NULL)
-		return -EINVAL;
-
-	if (f->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)	
-		return -EINVAL;	/* only capture is supported */
-
-	f->fmt.pix = decoder->pix;	
-
-	v4l_dbg(1, debug, decoder->client,	
-			"Current FMT: bytesperline - %d"
-			"Width - %d, Height - %d",
-			decoder->pix.bytesperline,
-			decoder->pix.width, decoder->pix.height);
-	return 0;
-}	
-/*	
- * ioctl_g_parm - V4L2 decoder interface handler for VIDIOC_G_PARM ioctl	
- * @s: pointer to standard V4L2 device structure
- * @a: pointer to standard V4L2 VIDIOC_G_PARM ioctl structure
- *
- * Returns the decoder's video CAPTURE parameters.	
- */
-static int	
-ioctl_g_parm(struct v4l2_int_device *s, struct v4l2_streamparm *a)
-{
-	struct mt9v113_decoder *decoder = s->priv;
-	struct v4l2_captureparm *cparm;
-	enum mt9v113_std current_std;
-
-	if (a == NULL)	
-		return -EINVAL;
-
-	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)	
-		return -EINVAL;	/* only capture is supported */
-
-	memset(a, 0, sizeof(*a));	
-	a->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	/* get the current standard */
-	current_std = mt9v113_get_current_std(decoder);
-	if (current_std == MT9V113_STD_INVALID)
-		return -EINVAL;
-
-	decoder->current_std = current_std;	
-	cparm = &a->parm.capture;
-	cparm->capability = V4L2_CAP_TIMEPERFRAME;
-	cparm->timeperframe =
-		decoder->std_list[current_std].standard.frameperiod;
-
-	return 0;	
-}
-	
-/*	
- * ioctl_s_parm - V4L2 decoder interface handler for VIDIOC_S_PARM ioctl	
- * @s: pointer to standard V4L2 device structure
- * @a: pointer to standard V4L2 VIDIOC_S_PARM ioctl structure
- *
- * Configures the decoder to use the input parameters, if possible. If	
- * not possible, returns the appropriate error code.
- */
-static int	
-ioctl_s_parm(struct v4l2_int_device *s, struct v4l2_streamparm *a)
-{
-	struct mt9v113_decoder *decoder = s->priv;	
-	struct v4l2_fract *timeperframe;
-	enum mt9v113_std current_std;
-
-	if (a == NULL)	
-		return -EINVAL;
-
-	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)	
-		return -EINVAL;	/* only capture is supported */
-
-	timeperframe = &a->parm.capture.timeperframe;
-
-	/* get the current standard */	
-	current_std = mt9v113_get_current_std(decoder);
-	if (current_std == MT9V113_STD_INVALID)
-		return -EINVAL;
-
-	decoder->current_std = current_std;
-	
-	*timeperframe =	
-	    decoder->std_list[current_std].standard.frameperiod;
-
-	return 0;	
-}	
-/*	
- * ioctl_g_ifparm - V4L2 decoder interface handler for vidioc_int_g_ifparm_num	
- * @s: pointer to standard V4L2 device structure
- * @p: pointer to standard V4L2 vidioc_int_g_ifparm_num ioctl structure
- *
- * Gets slave interface parameters.	
- * Calculates the required xclk value to support the requested
- * clock parameters in p. This value is returned in the p
- * parameter.
- */
-static int ioctl_g_ifparm(struct v4l2_int_device *s, struct v4l2_ifparm *p)	
-{
-	struct mt9v113_decoder *decoder = s->priv;
-	int rval;
-
-	if (p == NULL)
-		return -EINVAL;
-
-	if (NULL == decoder->pdata->ifparm)	
-		return -EINVAL;
-
-	rval = decoder->pdata->ifparm(p);	
-	if (rval) {
-		v4l_err(decoder->client, "g_ifparm.Err[%d]\n", rval);
-		return rval;
-	}
-
-	p->u.bt656.clock_curr = 27000000; /* TODO:read clock rate from sensor */	
-
-	return 0;
-}	
-/*	
- * ioctl_g_priv - V4L2 decoder interface handler for vidioc_int_g_priv_num	
- * @s: pointer to standard V4L2 device structure
- * @p: void pointer to hold decoder's private data address
- *
- * Returns device's (decoder's) private data area address in p parameter	
- */
-static int ioctl_g_priv(struct v4l2_int_device *s, void *p)	
-{
-	struct mt9v113_decoder *decoder = s->priv;
-	
-	if (NULL == decoder->pdata->priv_data_set)	
-		return -EINVAL;
-
-	return decoder->pdata->priv_data_set(p);	
-}
-
-/*
- * ioctl_s_power - V4L2 decoder interface handler for vidioc_int_s_power_num	
- * @s: pointer to standard V4L2 device structure
- * @on: power state to which device is to be set
- *
- * Sets devices power state to requrested state, if possible.	
- */
-static int ioctl_s_power(struct v4l2_int_device *s, enum v4l2_power on)
-{
-	struct mt9v113_decoder *decoder = s->priv;
-	int err = 0;
-
-	switch (on) {
-	case V4L2_POWER_OFF:
-		/* Power Down Sequence */
-		/* TODO: FIXME: implement proper OFF and Standby code here */
-#if 0
-		err = mt9v113_write_reg(decoder->client, REG_OPERATION_MODE,	
-				0x01);
+        /* i2c_transfer returns message length, but function should return 0 */
+        ret = i2c_transfer(client->adapter, &msg, 1);
+        if (ret >= 0){
+#ifdef MT9V113_I2C_DEBUG
+                printk(KERN_INFO"REG=0x%04X, 0x%04X\n", addr,data);
 #endif
-		/* Disable mux for mt9v113 data path */
-		if (decoder->pdata->power_set)
-			err |= decoder->pdata->power_set(s, on);
-		break;
+                return 0;
+        }
 
-	case V4L2_POWER_STANDBY:
-		if (decoder->pdata->power_set)
-			err = decoder->pdata->power_set(s, on);
-		break;
-
-	case V4L2_POWER_ON:	
-		if (decoder->pdata->power_set) {
-			err = decoder->pdata->power_set(s, on);
-			if (err)
-				return err;
-		}
-
-		if (decoder->state == STATE_NOT_DETECTED) {	
-			/* Detect the sensor is not already detected */
-			err = mt9v113_detect(decoder);
-			if (err) {
-				v4l_err(decoder->client,
-						"Unable to detect decoder\n");
-				WARN_ON(1);
-				return err;
-			}
-		}
-		/* Only VGA mode for now */
-		err = mt9v113_configure(decoder);
-		if (err)
-			return err;
-		err = mt9v113_vga_mode(decoder);
-		if (err)
-			return err;
-		break;
-	
-	default:
-		err = -ENODEV;
-		break;
-	}
-
-	return err;	
+        v4l_err(client, "Write failed at 0x%x error %d\n", addr, ret);
+        return ret;
 }
 
-/*	
- * ioctl_init - V4L2 decoder interface handler for VIDIOC_INT_INIT	
- * @s: pointer to standard V4L2 device structure
+/**
+ * mt9v113_write_8 - writes the data into the given register
+ * @client: pointer to i2c client
+ * @addr: address of the register in which to write
+ * @data: data to be written into the register
  *
- * Initialize the decoder device (calls mt9v113_configure())	
  */
-static int ioctl_init(struct v4l2_int_device *s)	
+static int mt9v113_write_8(struct i2c_client *client, u16 addr,
+                                u8 data)
 {
-	struct mt9v113_decoder *decoder = s->priv;	
-	int err = 0;
-	err |= mt9v113_configure(decoder);
-	err |= mt9v113_vga_mode(decoder);
+        struct i2c_msg msg;
+        u8 buf[3];
+        u16 __addr;
+        int ret;
 
-	return err;	
+        /* 16-bit addressable register */
+
+        __addr = cpu_to_be16(addr);
+
+        buf[0] = __addr & 0xff;
+        buf[1] = __addr >> 8;
+        buf[2] = data;
+        msg.addr  = client->addr;
+        msg.flags = 0;
+        msg.len   = 3;
+        msg.buf   = buf;
+
+        /* i2c_transfer returns message length, but function should return 0 */
+        ret = i2c_transfer(client->adapter, &msg, 1);
+        if (ret >= 0){
+#ifdef MT9V113_I2C_DEBUG
+                printk(KERN_INFO"REG8=0x%04X, 0x%04X\n", addr, data);
+#endif
+                return 0;
+        }
+
+        v4l_err(client, "Write failed at 0x%x error %d\n", addr, ret);
+        return ret;
 }
+
+/**
+ * mt9v113_reset - Soft resets the sensor
+ * @client: pointer to the i2c client
+ *
+*/
+static int mt9v113_reset(struct i2c_client *client)
+{
+        int ret;
+
+        ret = mt9v113_write(client, MT9V113_RESET_AND_MISC_CONTROL, 0x0011);
+        if(ret < 0)
+                return ret;
+
+        msleep(1);
+
+        return mt9v113_write(client, MT9V113_RESET_AND_MISC_CONTROL, 0x0010);
+}
+
+/**
+ * mt9v113_pll_setup - enable the sensor pll
+ * @client: pointer to the i2c client
+ *
+ */
+static int mt9v113_pll_setup(struct i2c_client *client)
+{
+        int ret, count;
+        u16 data;
+        
+        ret = mt9v113_write(client, MT9V113_PLL_CONTROL, 0x2145);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_PLL_DIVIDERS, 0x0120);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_PLL_P_DIVIDERS, 0x0000);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_PLL_CONTROL, 0x244B);
+        msleep(1);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_PLL_CONTROL, 0x304B);
+        if (ret < 0)
+                return ret;
+
+        /* wait for PLL lock */
+        data = mt9v113_read(client, MT9V113_PLL_CONTROL);
+        count = 0;
+        while(!(data & 0x8000)){
+                if(count++ > 5){
+                        printk(KERN_ERR"Failed to lock PLL\n");
+                        break;
+                }
+                msleep(1);
+                data = mt9v113_read(client, MT9V113_PLL_CONTROL);
+        }
+        return mt9v113_write(client, MT9V113_PLL_CONTROL, 0xB04A);
+}
+
+/**
+ * mt9v113_power_on - power on the sensor
+ * @mt9v113: pointer to private data structure
+ *
+ */
+void mt9v113_power_on(struct mt9v113_priv *mt9v113)
+{
+        /* Ensure RESET_BAR is low */
+        if (mt9v113->pdata->reset) {
+                mt9v113->pdata->reset(&mt9v113->subdev, 1);
+                msleep(1);
+        }
+
+        /* Enable clock */
+        if (mt9v113->pdata->set_xclk) {
+                mt9v113->pdata->set_xclk(&mt9v113->subdev,
+                mt9v113->pdata->ext_freq);
+                msleep(1);
+        }
+
+        /* Now RESET_BAR must be high */
+        if (mt9v113->pdata->reset) {
+                mt9v113->pdata->reset(&mt9v113->subdev, 0);
+                msleep(1);
+        }
+}
+
+/**
+ * mt9v113_power_off - power off the sensor
+ * @mt9v113: pointer to private data structure
+ *
+ */
+void mt9v113_power_off(struct mt9v113_priv *mt9v113)
+{
+        if (mt9v113->pdata->set_xclk)
+                mt9v113->pdata->set_xclk(&mt9v113->subdev, 0);
+}
+
+/************************************************************************
+                        v4l2_subdev_core_ops
+************************************************************************/
+#define V4L2_CID_TEST_PATTERN           (V4L2_CID_USER_BASE | 0x1001)
+#define V4L2_CID_EFFECTS                (V4L2_CID_USER_BASE | 0x1002)
+
+static int mt9v113_update_read_mode(struct i2c_client *client, u16 data)
+{
+        int ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_READ_MODE_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, data);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_READ_MODE_B);
+        if (ret < 0)
+                return ret;
+        return mt9v113_write(client, MT9V113_MCU_DATA_0, data);
+}
+
+static int mt9v113_s_ctrl(struct v4l2_ctrl *ctrl)
+{
+        struct mt9v113_priv *mt9v113 = container_of(ctrl->handler,
+                                        struct mt9v113_priv, ctrls);
+        struct i2c_client *client = v4l2_get_subdevdata(&mt9v113->subdev);
+        u16 data;
+        int ret = 0;
+
+        switch (ctrl->id) {
+        case V4L2_CID_HFLIP:
+                data = mt9v113_read(client, MT9V113_READ_MODE_A);
+                if (ctrl->val){
+                        data |= 0x0001;
+                        ret = mt9v113_update_read_mode(client, data);
+                        if (ret < 0)
+                                return ret;
+
+                        break;
+                }
+                data &= 0xfffe;
+                ret = mt9v113_update_read_mode(client, data);
+                if (ret < 0)
+                        return ret;
+                break;
+        
+        case V4L2_CID_VFLIP:
+                data = mt9v113_read(client, MT9V113_READ_MODE_A);
+                if (ctrl->val) {
+                        data |= 0x0002;
+                        ret = mt9v113_update_read_mode(client, data);
+                        if (ret < 0)
+                                return ret;
+                        break;
+                }
+                data &= 0xfffc;
+                ret = mt9v113_update_read_mode(client, data);
+                if (ret < 0)
+                        return ret;
+                break;
+
+        case V4L2_CID_TEST_PATTERN:
+                if (!ctrl->val){
+                        ret = mt9v113_write(client, MT9V113_PATTERN_SELECT, 0x0000);
+                        if(ret < 0)
+                                return ret;
+                        break;
+                }
+                switch(ctrl->val)
+                case 1:
+                        ret = mt9v113_write(client, MT9V113_PATTERN_SELECT, MT9V113_8BIT_WALKING1);
+                        if(ret < 0)
+                                return ret;
+                        break;
+                default:
+                        ret = mt9v113_write(client, MT9V113_PATTERN_SELECT, MT9V113_10BIT_WALKING1);
+                        if(ret < 0)
+                                return ret;
+                        break;
+                break;
+
+        case V4L2_CID_EFFECTS:
+                data = 0x6640 | ctrl->val;
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SPEC_EFFECTS_A);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_DATA_0, data);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SPEC_EFFECTS_B);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_DATA_0, data);
+                if (ret < 0)
+                        return ret;
+                break;
+        }
+
+        /* Refresh */
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SEQ_CMD);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, MT9V113_REFRESH_MODE);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SEQ_CMD);
+        if (ret < 0)
+                return ret;
+        return mt9v113_write(client, MT9V113_MCU_DATA_0, MT9V113_REFRESH);
+}
+
+static struct v4l2_ctrl_ops mt9v113_ctrl_ops = {
+        .s_ctrl = mt9v113_s_ctrl,
+};
 
 /*
- * ioctl_dev_exit - V4L2 decoder interface handler for vidioc_int_dev_exit_num	
- * @s: pointer to standard V4L2 device structure
- *
- * Delinitialise the dev. at slave detach. The complement of ioctl_dev_init.	
- */
-static int ioctl_dev_exit(struct v4l2_int_device *s)	
+MT9V113_TEST_PATTERN
+0 = Disabled. Normal operation. Generate output data from pixel array
+1 = Marching 1s test pattern (8 bit)
+2 = Marching 1s test pattern (10 bit)
+*/
+static const char * const mt9v113_test_pattern_menu[] = {
+        "Disabled",
+        "8-bit Marching 1s",
+        "10-bit Marching 1s",
+};
+
+/*
+MT9V113_EFFECTS
+0 = Disabled
+1 = Monochrome
+2 = Sepia
+3 = Negative
+4 = Solarize with unmodified UV
+5 = Solarize with -UV
+*/
+static const char * const mt9v113_effects_menu[] = {
+        "Disabled",
+        "Monochrome",
+        "Sepia",
+        "Negative",
+        "Solarize1",
+        "Solarize2",
+};
+
+static const struct v4l2_ctrl_config mt9v113_ctrls[] = {
+        {
+                .ops            = &mt9v113_ctrl_ops,
+                .id             = V4L2_CID_TEST_PATTERN,
+                .type           = V4L2_CTRL_TYPE_MENU,
+                .name           = "Test Pattern",
+                .min            = 0,
+                .max            = ARRAY_SIZE(mt9v113_test_pattern_menu) - 1,
+                .step           = 0,
+                .def            = 0,
+                .flags          = 0,
+                .menu_skip_mask = 0,
+                .qmenu          = mt9v113_test_pattern_menu,
+        },
+        {
+                .ops            = &mt9v113_ctrl_ops,
+                .id             = V4L2_CID_EFFECTS,
+                .type           = V4L2_CTRL_TYPE_MENU,
+                .name           = "Effects",
+                .min            = 0,
+                .max            = ARRAY_SIZE(mt9v113_effects_menu) - 1,
+                .step           = 0,
+                .def            = 0,
+                .flags          = 0,
+                .menu_skip_mask = 0,
+                .qmenu          = mt9v113_effects_menu,
+        }
+};
+
+#ifdef CONFIG_VIDEO_ADV_DEBUG
+static int mt9v113_g_reg(struct v4l2_subdev *sd,
+                                struct v4l2_dbg_register *reg)
 {
-	return 0;	
+        struct i2c_client *client = v4l2_get_subdevdata(sd);
+        int data;
+
+        reg->size = 2;
+        data = mt9v113_read(client, reg->reg);
+        if (data < 0)
+                return data;
+
+        reg->val = data;
+        return 0;
 }
 
-/*	
- * ioctl_dev_init - V4L2 decoder interface handler for vidioc_int_dev_init_num	
- * @s: pointer to standard V4L2 device structure
- *
- * Initialise the device when slave attaches to the master. Returns 0 if	
- * mt9v113 device could be found, otherwise returns appropriate error.
- */
-static int ioctl_dev_init(struct v4l2_int_device *s)	
+static int mt9v113_s_reg(struct v4l2_subdev *sd,
+                                struct v4l2_dbg_register *reg)
 {
-	struct mt9v113_decoder *decoder = s->priv;	
-	int err;
+        struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-	err = mt9v113_detect(decoder);	
-	if (err < 0) {
-		v4l_err(decoder->client,
-			"Unable to detect decoder\n");
-		return err;
-	}
+        return mt9v113_write(client, reg->reg, reg->val);
+}
+#endif
 
-	v4l_info(decoder->client,
-		 "chip version 0x%.2x detected\n", decoder->ver);
-	err |= mt9v113_configure(decoder);
-	err |= mt9v113_vga_mode(decoder);
+static int mt9v113_s_power(struct v4l2_subdev *sd, int on)
+{
+        struct i2c_client *client = v4l2_get_subdevdata(sd);
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                struct mt9v113_priv, subdev);
+        int ret = 0;
 
-	return 0;
+        mutex_lock(&mt9v113->power_lock);
+
+        /*
+        * If the power count is modified from 0 to != 0 or from != 0 to 0,
+        * update the power state.
+        */
+        if (mt9v113->power_count == !on) {
+                if (on) {
+                                mt9v113_power_on(mt9v113);
+                                ret = mt9v113_reset(client);
+                                if (ret < 0) {
+                                        dev_err(mt9v113->subdev.v4l2_dev->dev,
+                                        "Failed to reset the camera\n");
+                                        goto out;
+                                }
+                                ret = v4l2_ctrl_handler_setup(&mt9v113->ctrls);
+                                if (ret < 0)
+                                        goto out;
+                } else
+                        mt9v113_power_off(mt9v113);
+        }
+        /* Update the power count. */
+        mt9v113->power_count += on ? 1 : -1;
+        WARN_ON(mt9v113->power_count < 0);
+out:
+        mutex_unlock(&mt9v113->power_lock);
+        return ret;
 }
 
-static struct v4l2_int_ioctl_desc mt9v113_ioctl_desc[] = {	
-	{vidioc_int_dev_init_num, (v4l2_int_ioctl_func*) ioctl_dev_init},
-	{vidioc_int_dev_exit_num, (v4l2_int_ioctl_func*) ioctl_dev_exit},
-	{vidioc_int_s_power_num, (v4l2_int_ioctl_func*) ioctl_s_power},
-	{vidioc_int_g_priv_num, (v4l2_int_ioctl_func*) ioctl_g_priv},
-	{vidioc_int_g_ifparm_num, (v4l2_int_ioctl_func*) ioctl_g_ifparm},
-	{vidioc_int_init_num, (v4l2_int_ioctl_func*) ioctl_init},
-	{vidioc_int_enum_fmt_cap_num,
-	 (v4l2_int_ioctl_func *) ioctl_enum_fmt_cap},
-	{vidioc_int_try_fmt_cap_num,
-	 (v4l2_int_ioctl_func *) ioctl_try_fmt_cap},
-	{vidioc_int_g_fmt_cap_num,
-	 (v4l2_int_ioctl_func *) ioctl_g_fmt_cap},
-	{vidioc_int_s_fmt_cap_num,
-	 (v4l2_int_ioctl_func *) ioctl_s_fmt_cap},
-	{vidioc_int_g_parm_num, (v4l2_int_ioctl_func *) ioctl_g_parm},
-	{vidioc_int_s_parm_num, (v4l2_int_ioctl_func *) ioctl_s_parm},
-	{vidioc_int_queryctrl_num,
-	 (v4l2_int_ioctl_func *) ioctl_queryctrl},
-	{vidioc_int_g_ctrl_num, (v4l2_int_ioctl_func *) ioctl_g_ctrl},
-	{vidioc_int_s_ctrl_num, (v4l2_int_ioctl_func *) ioctl_s_ctrl},
-	{vidioc_int_querystd_num, (v4l2_int_ioctl_func *) ioctl_querystd},
-	{vidioc_int_s_std_num, (v4l2_int_ioctl_func *) ioctl_s_std},
-	{vidioc_int_s_video_routing_num,
-		(v4l2_int_ioctl_func *) ioctl_s_routing},
-	{vidioc_int_enum_framesizes_num,
-		(v4l2_int_ioctl_func *)ioctl_enum_framesizes},
-	{vidioc_int_enum_frameintervals_num,
-		(v4l2_int_ioctl_func *)ioctl_enum_frameintervals},
-};
-
-static struct v4l2_int_slave mt9v113_slave = {	
-	.ioctls = mt9v113_ioctl_desc,
-	.num_ioctls = ARRAY_SIZE(mt9v113_ioctl_desc),
-};
-	
-static struct mt9v113_decoder mt9v113_dev = {
-	.state = STATE_NOT_DETECTED,
-
-	.fmt_list = mt9v113_fmt_list,	
-	.num_fmts = ARRAY_SIZE(mt9v113_fmt_list),
-
-	.pix = {		/* Default to 8-bit YUV 422 */	
-		.width = VGA_NUM_ACTIVE_PIXELS,
-		.height = VGA_NUM_ACTIVE_LINES,
-		.pixelformat = V4L2_PIX_FMT_UYVY,
-		.field = V4L2_FIELD_NONE,
-		.bytesperline = VGA_NUM_ACTIVE_PIXELS * 2,
-		.sizeimage =
-		VGA_NUM_ACTIVE_PIXELS * 2 * VGA_NUM_ACTIVE_LINES,
-		.colorspace = V4L2_COLORSPACE_SMPTE170M,
-		},
-
-	.current_std = MT9V113_STD_VGA,	
-	.std_list = mt9v113_std_list,
-	.num_stds = ARRAY_SIZE(mt9v113_std_list),
-
-};
-	
-static struct v4l2_int_device mt9v113_int_device = {	
-	.module = THIS_MODULE,
-	.name = MT9V113_MODULE_NAME,
-	.priv = &mt9v113_dev,
-	.type = v4l2_int_type_slave,
-	.u = {
-	      .slave = &mt9v113_slave,
-	      },
-};	
-/*	
- * mt9v113_probe - decoder driver i2c probe handler	
- * @client: i2c driver client device structure
- *
- * Register decoder as an i2c client device and V4L2	
- * device.
- */
-static int	
-mt9v113_probe(struct i2c_client *client, const struct i2c_device_id *id)
+/***************************************************
+                v4l2_subdev_video_ops
+****************************************************/
+static unsigned int mt9v113_lsc_setup(struct i2c_client *client)
 {
-	struct mt9v113_decoder *decoder = &mt9v113_dev;	
-	int err;
+        int ret;
+        int i;
 
-	/* Check if the adapter supports the needed features */	
-	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
-		return -EIO;
+        ret = mt9v113_write(client, MT9V113_RESET_AND_MISC_CONTROL, 0x0210);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_STANDBY_CONTROL, 0x402C);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_CLOCKS_CONTROL, 0x42DF);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_PAD_SLEW, 0x0777);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0x02F0);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0x0000);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0x02F2);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0x0210);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0x02F4);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0x001A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0x2145);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0x02F4);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA134);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0x0001);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_PIX_DEF_ID, 0x0001);
+        if (ret < 0)
+                return ret;
 
-	decoder->pdata = client->dev.platform_data;	
-	if (!decoder->pdata) {
-		v4l_err(client, "No platform data!!\n");
-		return -ENODEV;
-	}
-	/*
-	 * Save the id data, required for power up sequence
-	 */
-	decoder->id = (struct i2c_device_id *)id;
-	/* Attach to Master */
-	strcpy(mt9v113_int_device.u.slave->attach_to, decoder->pdata->master);
-	decoder->v4l2_int_device = &mt9v113_int_device;
-	decoder->client = client;
-	i2c_set_clientdata(client, decoder);
+        for(i = 0; i < ARRAY_SIZE(mt9v113_lsc1); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LSC_START1 + 2*i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_DATA_0, mt9v113_lsc1[i]);
+                if (ret < 0)
+                        return ret;
+        }
 
-	/* Register with V4L2 layer as slave device */	
-	err = v4l2_int_device_register(decoder->v4l2_int_device);
-	if (err) {
-		i2c_set_clientdata(client, NULL);
-		v4l_err(client,
-			"Unable to register to v4l2. Err[%d]\n", err);
-	} else
-		v4l_info(client, "Registered to v4l2 master %s!!\n",
-				decoder->pdata->master);
+        for(i = 0; i < ARRAY_SIZE(mt9v113_lsc2); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LSC_START2 + 2*i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_DATA_0, mt9v113_lsc2[i]);
+                if (ret < 0)
+                        return ret;
+        }
 
-	return 0;	
+        for(i = 0; i < ARRAY_SIZE(mt9v113_lsc3); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LSC_START3 + 2*i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_DATA_0, mt9v113_lsc3[i]);
+                if (ret < 0)
+                        return ret;
+        }
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0x222D);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0x0082);
+        if (ret < 0)
+                return ret;
+
+        for(i = 0; i < ARRAY_SIZE(mt9v113_lsc4); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LSC_START4 + i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, mt9v113_lsc4[i]);
+                if (ret < 0)
+                        return ret;
+        }
+
+        for(i = 0; i < ARRAY_SIZE(mt9v113_lsc5); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LSC_START5 + 2*i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_DATA_0, mt9v113_lsc5[i]);
+                if (ret < 0)
+                        return ret;
+        }
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA404);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x10);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA40D);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x02);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA40E);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x03);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA410);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x0A);
+        if (ret < 0)
+                return ret;
+
+        return mt9v113_write(client, MT9V113_COLOR_PIPELINE_CONTROL, 0x09B8);
 }
-	
-/*	
- * mt9v113_remove - decoder driver i2c remove handler	
- * @client: i2c driver client device structure
- *
- * Unregister decoder as an i2c client device and V4L2	
- * device. Complement of mt9v113_probe().
- */
-static int __exit mt9v113_remove(struct i2c_client *client)	
+
+static unsigned int mt9v113_awb_ccm(struct i2c_client *client)
 {
-	struct mt9v113_decoder *decoder = i2c_get_clientdata(client);
+        int i;
+        int ret;
+        
+        for(i = 0; i < ARRAY_SIZE(mt9v113_awb_1); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_ADDR_1 + 2*i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write(client, MT9V113_MCU_DATA_0, mt9v113_awb_1[i]);
+                if (ret < 0)
+                        return ret;
+        }
+        
+        for(i = 0; i < ARRAY_SIZE(mt9v113_awb_2); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_ADDR_2 + i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, mt9v113_awb_2[i]);
+                if (ret < 0)
+                        return ret;
+        }
 
-	if (!client->adapter)
-		return -ENODEV;	/* our client isn't attached */
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_POSITION_MIN);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x00);
+        if (ret < 0)
+                return ret;
 
-	v4l2_int_device_unregister(decoder->v4l2_int_device);	
-	i2c_set_clientdata(client, NULL);
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_POSITION_MAX);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x7F);
+        if (ret < 0)
+                return ret;
 
-	return 0;	
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_SATURATION);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x43);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_MODE);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x01); 
+        if (ret < 0)
+                return ret;
+
+        for(i = 0; i < ARRAY_SIZE(mt9v113_awb_3); i++){
+                ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_ADDR_3 + i);
+                if (ret < 0)
+                        return ret;
+                ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, mt9v113_awb_3[i]);
+                if (ret < 0)
+                        return ret;
+        }
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_CNT_PXL_TH);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0x0040);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_TG_MIN0);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0xD2);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_TG_MAX0);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0xF6);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_WINDOW_POS);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x00);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_AWB_WINDOW_SIZE);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0xEF);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LL_SAT1);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x24);
+        if (ret < 0)
+                return ret;
+        
+        /* AWB Setting for FW bootup */
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA353);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x0020);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA34E);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x009A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA34F);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x0080);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, 0xA350);
+        if (ret < 0)
+                return ret;
+        return mt9v113_write_8(client, MT9V113_MCU_DATA_0, 0x0082);
 }
-/*	
- * mt9v113 Init/Power on Sequence	
+
+static unsigned int mt9v113_cpipe_setup(struct i2c_client *client)
+{
+        int ret;
+
+        /* CPIPE calibration */
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_MODE_DEC_CTRL_B);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x0004);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_MODE_DEC_CTRL_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x0004);
+        if (ret < 0)
+                return ret;
+
+        /* CPIPE preferences */
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LLMODE);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x00C7);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_NR_STOP_G);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x001E);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LL_SAT1);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x0054);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LL_INTERPTHRESH1);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x0046);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LL_APCORR1);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x0002);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LL_SAT2);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x0005);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LL_BRIGHTNESSSTART);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0,  0x170C);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_LL_BRIGHTNESSSTOP);
+        if (ret < 0)
+                return ret;
+        return mt9v113_write(client, MT9V113_MCU_DATA_0,  0x3E80);
+}
+
+static int mt9v113_set_resolution(struct i2c_client *client, struct mt9v113_frame_size *frame)
+{
+        int ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_X0_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_X1_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 639);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_Y0_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_Y1_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 479);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_X0_B);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_X1_B);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 639);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_Y0_B);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 0);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_CROP_Y1_B);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, 479);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_OUTPUT_WIDTH_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, frame->width);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_OUTPUT_HEIGHT_A);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, frame->height);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_OUTPUT_WIDTH_B);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, frame->width);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_OUTPUT_HEIGHT_B);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, frame->height);
+        if (ret < 0)
+                return ret;
+        /* Refresh */
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SEQ_CMD);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write_8(client, MT9V113_MCU_DATA_0, MT9V113_REFRESH_MODE);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SEQ_CMD);
+        if (ret < 0)
+                return ret;
+        return mt9v113_write(client, MT9V113_MCU_DATA_0, MT9V113_REFRESH);
+}
+
+static int mt9v113_s_stream(struct v4l2_subdev *sd, int enable)
+{
+        struct i2c_client *client = v4l2_get_subdevdata(sd);
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                        struct mt9v113_priv, subdev);
+        struct mt9v113_frame_size frame;
+        int ret;
+
+        if (!enable)
+                return 0;
+
+        ret = mt9v113_pll_setup(client);
+        if (ret < 0){
+                printk(KERN_ERR"%s: Failed to setup PLL\n",__func__);
+                return ret;
+        }
+
+        ret = mt9v113_lsc_setup(client);
+        if (ret < 0){
+                printk(KERN_ERR"%s: Failed to setup LSC\n",__func__);
+                return ret;
+        }
+
+        /* Make sure MCU will be turned on after LSC */
+        ret = mt9v113_write(client, MT9V113_STANDBY_CONTROL, 0x0028);
+        if (ret < 0)
+                return ret;
+        msleep(20);
+
+        ret = mt9v113_awb_ccm(client);
+        if (ret < 0){
+                printk(KERN_ERR"%s: Failed to setup AWB CCM\n",__func__);
+                return ret;
+        }
+
+        ret = mt9v113_cpipe_setup(client);
+        if (ret < 0){
+                printk(KERN_ERR"%s: Failed to setup color pipe\n",__func__);
+                return ret;
+        }
+        
+        frame.width = mt9v113->format.width;
+        frame.height = mt9v113->format.height;
+        ret = mt9v113_set_resolution(client, &frame);
+        if(ret < 0){
+                printk(KERN_ERR"%s: Failed to setup resolution:%dx%d\n",
+                        __func__, frame.width, frame.height);
+                return ret;
+        }
+                
+        /* Refresh */
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SEQ_CMD);
+        if (ret < 0)
+                return ret;
+        ret = mt9v113_write(client, MT9V113_MCU_DATA_0, MT9V113_REFRESH_MODE);
+        if (ret < 0)
+                return ret;
+
+        ret = mt9v113_write(client, MT9V113_MCU_ADDRESS, MT9V113_SEQ_CMD);
+        if (ret < 0)
+                return ret;
+        return mt9v113_write(client, MT9V113_MCU_DATA_0, MT9V113_REFRESH);
+}
+
+
+/***************************************************
+                v4l2_subdev_pad_ops
+****************************************************/
+static int mt9v113_enum_mbus_code(struct v4l2_subdev *sd,
+                                struct v4l2_subdev_fh *fh,
+                                struct v4l2_subdev_mbus_code_enum *code)
+{
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                        struct mt9v113_priv, subdev);
+
+        if (code->pad || code->index)
+                return -EINVAL;
+
+        code->code = mt9v113->format.code;
+        return 0;
+}
+
+static int mt9v113_enum_frame_size(struct v4l2_subdev *sd,
+                                struct v4l2_subdev_fh *fh,
+                                struct v4l2_subdev_frame_size_enum *fse)
+{
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                        struct mt9v113_priv, subdev);
+
+        if (fse->index != 0 || fse->code != mt9v113->format.code)
+                return -EINVAL;
+
+        fse->min_width = MT9V113_WINDOW_WIDTH_MIN;
+        fse->max_width = MT9V113_WINDOW_WIDTH_MAX;
+        fse->min_height = MT9V113_WINDOW_HEIGHT_MIN;
+        fse->max_height = MT9V113_WINDOW_HEIGHT_MAX;
+
+        return 0;
+}
+
+static struct v4l2_mbus_framefmt *
+__mt9v113_get_pad_format(struct mt9v113_priv *mt9v113, struct v4l2_subdev_fh *fh,
+                        unsigned int pad, u32 which)
+{
+        switch (which) {
+        case V4L2_SUBDEV_FORMAT_TRY:
+                return v4l2_subdev_get_try_format(fh, pad);
+        case V4L2_SUBDEV_FORMAT_ACTIVE:
+                return &mt9v113->format;
+        default:
+                return NULL;
+        }
+}
+
+static struct v4l2_rect *
+__mt9v113_get_pad_crop(struct mt9v113_priv *mt9v113, struct v4l2_subdev_fh *fh,
+        unsigned int pad, u32 which)
+{
+        switch (which) {
+        case V4L2_SUBDEV_FORMAT_TRY:
+                return v4l2_subdev_get_try_crop(fh, pad);
+        case V4L2_SUBDEV_FORMAT_ACTIVE:
+                return &mt9v113->crop;
+        default:
+                return NULL;
+        }
+}
+
+static int mt9v113_get_format(struct v4l2_subdev *sd,
+                                struct v4l2_subdev_fh *fh,
+                                struct v4l2_subdev_format *fmt)
+{
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                        struct mt9v113_priv, subdev);
+
+        fmt->format = *__mt9v113_get_pad_format(mt9v113, fh, fmt->pad,
+                                                fmt->which);
+
+        return 0;
+}
+
+static int mt9v113_set_format(struct v4l2_subdev *sd,
+                                struct v4l2_subdev_fh *fh,
+                                struct v4l2_subdev_format *format)
+{
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                        struct mt9v113_priv, subdev);
+        struct mt9v113_frame_size size;
+        struct v4l2_mbus_framefmt *__format;
+        struct v4l2_rect *__crop;
+        unsigned int wratio;
+        unsigned int hratio;
+
+        /* Clamp the width and height to avoid dividing by zero. */
+        size.width = clamp_t(u16, ALIGN(format->format.width, 2),
+                        MT9V113_WINDOW_WIDTH_MIN,
+                        MT9V113_WINDOW_WIDTH_MAX);
+        size.height = clamp_t(u16, ALIGN(format->format.height, 2),
+                        MT9V113_WINDOW_HEIGHT_MIN,
+                        MT9V113_WINDOW_HEIGHT_MAX);
+
+        __crop = __mt9v113_get_pad_crop(mt9v113, fh, format->pad,
+                format->which);
+
+        wratio = DIV_ROUND_CLOSEST(__crop->width, size.width);
+        hratio = DIV_ROUND_CLOSEST(__crop->height, size.height);
+
+        __format = __mt9v113_get_pad_format(mt9v113, fh, format->pad,
+                                                format->which);
+        __format->width = __crop->width / wratio;
+        __format->height = __crop->height / hratio;
+
+        format->format = *__format;
+        mt9v113->format.width        = format->format.width;
+        mt9v113->format.height        = format->format.height;
+        mt9v113->format.code        = V4L2_MBUS_FMT_UYVY8_1X16;
+
+        return 0;
+}
+
+static int mt9v113_get_crop(struct v4l2_subdev *sd,
+                        struct v4l2_subdev_fh *fh,
+                        struct v4l2_subdev_crop *crop)
+{
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                        struct mt9v113_priv, subdev);
+
+        crop->rect = *__mt9v113_get_pad_crop(mt9v113, fh, crop->pad, crop->which);
+
+        return 0;
+}
+
+static int mt9v113_set_crop(struct v4l2_subdev *sd,
+                        struct v4l2_subdev_fh *fh,
+                        struct v4l2_subdev_crop *crop)
+{
+        struct mt9v113_priv *mt9v113 = container_of(sd,
+                                        struct mt9v113_priv, subdev);
+        struct v4l2_mbus_framefmt *__format;
+        struct v4l2_rect *__crop;
+        struct v4l2_rect rect;
+
+        /* Clamp the crop rectangle boundaries and align them to a multiple of 2
+        * pixels to ensure a GRBG Bayer pattern.
+        */
+        rect.left = clamp(ALIGN(crop->rect.left, 2), MT9V113_COLUMN_START_MIN,
+                        MT9V113_COLUMN_START_MAX);
+        rect.top = clamp(ALIGN(crop->rect.top, 2), MT9V113_ROW_START_MIN,
+                        MT9V113_ROW_START_MAX);
+        rect.width = clamp(ALIGN(crop->rect.width, 2),
+                        MT9V113_WINDOW_WIDTH_MIN,
+                        MT9V113_WINDOW_WIDTH_MAX);
+        rect.height = clamp(ALIGN(crop->rect.height, 2),
+                        MT9V113_WINDOW_HEIGHT_MIN,
+                        MT9V113_WINDOW_HEIGHT_MAX);
+
+        rect.width = min(rect.width, MT9V113_PIXEL_ARRAY_WIDTH - rect.left);
+        rect.height = min(rect.height, MT9V113_PIXEL_ARRAY_HEIGHT - rect.top);
+
+        __crop = __mt9v113_get_pad_crop(mt9v113, fh, crop->pad, crop->which);
+
+        /* Reset the output image size if the crop rectangle size has
+        * been modified.
+        */
+        if (rect.width != __crop->width || rect.height != __crop->height) {
+                __format = __mt9v113_get_pad_format(mt9v113, fh, crop->pad,
+                                                                crop->which);
+                __format->width = rect.width;
+                __format->height = rect.height;
+        }
+
+        *__crop = rect;
+        crop->rect = rect;
+
+        mt9v113->crop.left        = crop->rect.left;
+        mt9v113->crop.top        = crop->rect.top;
+        mt9v113->crop.width        = crop->rect.width;
+        mt9v113->crop.height        = crop->rect.height;
+
+        return 0;
+}
+
+/***********************************************************
+        V4L2 subdev internal operations
+************************************************************/
+static int mt9v113_registered(struct v4l2_subdev *sd)
+{
+        struct i2c_client *client = v4l2_get_subdevdata(sd);
+        struct mt9v113_priv *mt9v113 = to_mt9v113(client);
+        s32 data;
+        int count = 0;
+
+        mt9v113_power_on(mt9v113);
+
+        /* Read out the chip version register */
+        data = mt9v113_read(client, MT9V113_CHIP_ID_REG);
+        if (data != MT9V113_CHIP_ID) {
+                while(count++ < 5){
+                        data = mt9v113_read(client, MT9V113_CHIP_ID_REG);
+                        msleep(5);
+                }
+                dev_err(&client->dev, "MT9V113 not detected, chip ID read:0x%4.4x\n",
+                                data);
+                return -ENODEV;
+        }
+        dev_info(&client->dev, "MT9V113 detected at address 0x%02x:chip ID = 0x%4.4x\n",
+                        client->addr, MT9V113_CHIP_ID);
+
+        mt9v113_power_off(mt9v113);
+
+        return 0;
+}
+
+static int mt9v113_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+{
+        return mt9v113_s_power(sd, 1);
+}
+
+static int mt9v113_close(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+{
+        return mt9v113_s_power(sd, 0);
+}
+
+/***************************************************
+                v4l2_subdev_ops
+****************************************************/
+static struct v4l2_subdev_core_ops mt9v113_subdev_core_ops = {
+#ifdef CONFIG_VIDEO_ADV_DEBUG
+        .g_register        = mt9v113_g_reg,
+        .s_register        = mt9v113_s_reg,
+#endif
+        .s_power        = mt9v113_s_power,
+};
+
+static struct v4l2_subdev_video_ops mt9v113_subdev_video_ops = {
+        .s_stream        = mt9v113_s_stream,
+};
+
+static struct v4l2_subdev_pad_ops mt9v113_subdev_pad_ops = {
+        .enum_mbus_code         = mt9v113_enum_mbus_code,
+        .enum_frame_size = mt9v113_enum_frame_size,
+        .get_fmt         = mt9v113_get_format,
+        .set_fmt         = mt9v113_set_format,
+        .get_crop         = mt9v113_get_crop,
+        .set_crop         = mt9v113_set_crop,
+};
+
+static struct v4l2_subdev_ops mt9v113_subdev_ops = {
+        .core        = &mt9v113_subdev_core_ops,
+        .video        = &mt9v113_subdev_video_ops,
+        .pad        = &mt9v113_subdev_pad_ops,
+};
+
+/*
+ * Internal ops. Never call this from drivers, only the v4l2 framework can call
+ * these ops.
  */
-static const struct mt9v113_reg mt9v113m_init_reg_seq[] = {	
-	{TOK_WRITE, REG_OPERATION_MODE, 0x01},
-	{TOK_WRITE, REG_OPERATION_MODE, 0x00},
+static const struct v4l2_subdev_internal_ops mt9v113_subdev_internal_ops = {
+        .registered        = mt9v113_registered,
+        .open                = mt9v113_open,
+        .close                = mt9v113_close,
 };
-static const struct mt9v113_init_seq mt9v113m_init = {
-	.no_regs = ARRAY_SIZE(mt9v113m_init_reg_seq),
-	.init_reg_seq = mt9v113m_init_reg_seq,
+
+/***************************************************
+                I2C driver
+****************************************************/
+static int mt9v113_probe(struct i2c_client *client,
+                        const struct i2c_device_id *did)
+{
+        struct mt9v113_platform_data *pdata = client->dev.platform_data;
+        struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
+        struct mt9v113_priv *mt9v113;
+        int ret;
+        int i;
+
+        if (pdata == NULL) {
+                dev_err(&client->dev, "No platform data\n");
+                return -EINVAL;
+        }
+
+        if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_WORD_DATA)) {
+                dev_warn(&client->dev, "I2C-Adapter doesn't support I2C_FUNC_SMBUS_WORD\n");
+                return -EIO;
+        }
+
+        mt9v113 = devm_kzalloc(&client->dev, sizeof(struct mt9v113_priv),
+                                GFP_KERNEL);
+        if (mt9v113 == NULL)
+                return -ENOMEM;
+
+        mt9v113->pdata = pdata;
+
+        v4l2_ctrl_handler_init(&mt9v113->ctrls,ARRAY_SIZE(mt9v113_ctrls) + 2);
+
+        v4l2_ctrl_new_std(&mt9v113->ctrls, &mt9v113_ctrl_ops,
+                                V4L2_CID_HFLIP, 0, 1, 1, 0);
+        v4l2_ctrl_new_std(&mt9v113->ctrls, &mt9v113_ctrl_ops,
+                                V4L2_CID_VFLIP, 0, 1, 1, 0);
+        for (i = 0; i < ARRAY_SIZE(mt9v113_ctrls); i++){
+                v4l2_ctrl_new_custom(&mt9v113->ctrls, &mt9v113_ctrls[i], NULL);
+        }
+        mt9v113->subdev.ctrl_handler = &mt9v113->ctrls;
+
+        if (mt9v113->ctrls.error) {
+                ret = mt9v113->ctrls.error;
+                dev_err(&client->dev, "Control initialization error: %d\n",
+                        ret);
+                goto done;
+        }
+
+        mutex_init(&mt9v113->power_lock);
+        v4l2_i2c_subdev_init(&mt9v113->subdev, client, &mt9v113_subdev_ops);
+        mt9v113->subdev.internal_ops = &mt9v113_subdev_internal_ops;
+        mt9v113->subdev.ctrl_handler = &mt9v113->ctrls;
+
+        mt9v113->pad.flags = MEDIA_PAD_FL_SOURCE;
+        ret = media_entity_init(&mt9v113->subdev.entity, 1, &mt9v113->pad, 0);
+        if (ret < 0)
+                goto done;
+
+        mt9v113->subdev.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
+
+        mt9v113->crop.width        = MT9V113_WINDOW_WIDTH_DEF;
+        mt9v113->crop.height        = MT9V113_WINDOW_HEIGHT_DEF;
+        mt9v113->crop.left        = MT9V113_COLUMN_START_DEF;
+        mt9v113->crop.top        = MT9V113_ROW_START_DEF;
+
+        mt9v113->format.code                = V4L2_MBUS_FMT_UYVY8_1X16;
+        mt9v113->format.width                = MT9V113_WINDOW_WIDTH_DEF;
+        mt9v113->format.height                = MT9V113_WINDOW_HEIGHT_DEF;
+        mt9v113->format.field                = V4L2_FIELD_NONE;
+        mt9v113->format.colorspace        = V4L2_COLORSPACE_SRGB;
+
+done:
+        if (ret < 0) {
+                v4l2_ctrl_handler_free(&mt9v113->ctrls);
+                media_entity_cleanup(&mt9v113->subdev.entity);
+                dev_err(&client->dev, "Probe failed\n");
+        }
+
+        return ret;
+}
+
+static int mt9v113_remove(struct i2c_client *client)
+{
+        struct v4l2_subdev *subdev = i2c_get_clientdata(client);
+        struct mt9v113_priv *mt9v113 = to_mt9v113(client);
+
+        v4l2_ctrl_handler_free(&mt9v113->ctrls);
+        v4l2_device_unregister_subdev(subdev);
+        media_entity_cleanup(&subdev->entity);
+
+        return 0;
+}
+
+static const struct i2c_device_id mt9v113_id[] = {
+        { "mt9v113", 0 },
+        { }
 };
-/*	
- * I2C Device Table -	
- *
- * name - Name of the actual device/chip.	
- * driver_data - Driver data
- */
-static const struct i2c_device_id mt9v113_id[] = {	
-	{"mt9v113", (unsigned long)&mt9v113m_init},
-	{},
-};
-	
 MODULE_DEVICE_TABLE(i2c, mt9v113_id);
 
 static struct i2c_driver mt9v113_i2c_driver = {
-	.driver = {
-		   .name = MT9V113_MODULE_NAME,
-		   .owner = THIS_MODULE,
-		   },
-	.probe = mt9v113_probe,
-	.remove = __exit_p(mt9v113_remove),
-	.id_table = mt9v113_id,
+        .driver = {
+                 .name = "mt9v113",
+        },
+        .probe    = mt9v113_probe,
+        .remove   = mt9v113_remove,
+        .id_table = mt9v113_id,
 };
-	
-/*	
- * mt9v113_init	
- *
- * Module init function	
- */
-static int __init mt9v113_init(void)	
-{
-	return i2c_add_driver(&mt9v113_i2c_driver);	
-}	
-/*	
- * mt9v113_cleanup	
- *
- * Module exit function	
- */
-static void __exit mt9v113_cleanup(void)	
-{
-	i2c_del_driver(&mt9v113_i2c_driver);	
-}
-	
-module_init(mt9v113_init);	
-module_exit(mt9v113_cleanup);
 
-MODULE_AUTHOR("Texas Instruments");
-MODULE_DESCRIPTION("MT9V113 linux decoder driver");
-MODULE_LICENSE("GPL");
+/* module_i2c_driver(mt9v113_i2c_driver); */
+
+static int __init mt9v113_module_init(void)
+{
+        return i2c_add_driver(&mt9v113_i2c_driver);
+}
+
+static void __exit mt9v113_module_exit(void)
+{
+        i2c_del_driver(&mt9v113_i2c_driver);
+}
+module_init(mt9v113_module_init);
+module_exit(mt9v113_module_exit);
+
+MODULE_DESCRIPTION("Aptina MT9V113 Camera driver");
+MODULE_AUTHOR("Aptina Imaging <drivers@aptina.com>");
+MODULE_LICENSE("GPL v2");
