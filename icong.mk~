@@ -19,17 +19,17 @@
 $(call inherit-product, build/target/product/full_base_telephony.mk)
 $(call inherit-product, build/target/product/languages_full.mk)
 
-$(call inherit-product, device/htc/marvel/marvel-vendor.mk)
+$(call inherit-product, device/htc/icong/icong-vendor.mk)
 $(call inherit-product, device/common/gps/gps_eu_supl.mk)
 
-DEVICE_PACKAGE_OVERLAYS += device/htc/marvel/overlay
+DEVICE_PACKAGE_OVERLAYS += device/htc/icong/overlay
 
 # dalvik heap config for devices with 512MB memory
-$(call inherit-product, frameworks/native/build/phone-hdpi-512-dalvik-heap.mk)
+$(call inherit-product, frameworks/native/build/phone-mdpi-512-dalvik-heap.mk)
 
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/init.marvel.rc:root/init.marvel.rc \
-    device/htc/marvel/ueventd.marvel.rc:root/ueventd.marvel.rc
+    device/htc/icong/init.icong.rc:root/init.icong.rc \
+    device/htc/icong/ueventd.icong.rc:root/ueventd.icong.rc
 
 # Default network type.
 # 0 => WCDMA preferred.
@@ -56,13 +56,13 @@ PRODUCT_COPY_FILES += \
 
 # USB
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/init.msm7x27.usb.rc:root/init.msm7x27.usb.rc
+    device/htc/icong/init.msm7x27.usb.rc:root/init.msm7x27.usb.rc
 
 # Media
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/libaudio/audio_policy.conf:system/etc/audio_policy.conf \
-    device/htc/marvel/media_codecs.xml:system/etc/media_codecs.xml \
-    device/htc/marvel/media_profiles.xml:system/etc/media_profiles.xml
+    device/htc/icong/libaudio/audio_policy.conf:system/etc/audio_policy.conf \
+    device/htc/icong/media_codecs.xml:system/etc/media_codecs.xml \
+    device/htc/icong/media_profiles.xml:system/etc/media_profiles.xml
 
 PRODUCT_PROPERTY_OVERRIDES += \
       media.a1026.nsForVoiceRec            = 0 \
@@ -70,9 +70,9 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # Firmware
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/firmware/bcm4329.hcd:system/etc/firmware/bcm4329.hcd \
-    device/htc/marvel/firmware/fw_bcm4329.bin:system/etc/firmware/fw_bcm4329.bin \
-    device/htc/marvel/firmware/fw_bcm4329_apsta.bin:system/etc/firmware/fw_bcm4329_apsta.bin
+    device/htc/icong/firmware/bcm4329.hcd:system/etc/firmware/bcm4329.hcd \
+    device/htc/icong/firmware/fw_bcm4329.bin:system/etc/firmware/fw_bcm4329.bin \
+    device/htc/icong/firmware/fw_bcm4329_apsta.bin:system/etc/firmware/fw_bcm4329_apsta.bin
 
 # Audio
 PRODUCT_PACKAGES += \
@@ -84,7 +84,7 @@ PRODUCT_PACKAGES += \
 
 ### Audio policy
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/libaudio/audio_policy.conf:system/etc/audio_policy.conf
+    device/htc/icong/libaudio/audio_policy.conf:system/etc/audio_policy.conf
 
 # Video
 PRODUCT_PACKAGES += \
@@ -109,12 +109,12 @@ PRODUCT_PACKAGES += \
 
 ### Mount vold
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/vold.fstab:system/etc/vold.fstab
+    device/htc/icong/vold.fstab:system/etc/vold.fstab
 
 # Lights and sensors
 PRODUCT_PACKAGES += \
     sensors.msm7x27 \
-    lights.marvel \
+    lights.icong \
     lights.msm7x27
 
 # Misc
@@ -136,7 +136,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
     ro.ril.def.agps.mode=2
 
 PRODUCT_PACKAGES += \
-    gps.marvel
+    gps.icong
 
 # RIL
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -154,7 +154,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     mobiledata.interfaces=rmnet0,rmnet1,rmnet2,gprs,ppp0 \
     wifi.interface = wlan0 \
-    wifi.supplicant_scan_interval=60
+    wifi.supplicant_scan_interval=40
 
 # Graphics
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -180,12 +180,12 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # Keylayouts
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/key/marvel-keypad.kl:system/usr/keylayout/marvel-keypad.kl \
-    device/htc/marvel/init.marvel.rc:root/init.marvel.rc \
-    device/htc/marvel/ueventd.marvel.rc:root/ueventd.marvel.rc \
-    device/htc/marvel/key/marvel-keypad.kcm.bin:system/usr/keychars/marvel-keypad.kcm.bin \
-    device/htc/marvel/key/h2w_headset.kl:system/usr/keylayout/h2w_headset.kl \
-    device/htc/marvel/key/cy8c-touchscreen.kl:system/usr/keylayout/cy8c-touchscreen.kl
+    device/htc/icong/key/icong-keypad.kl:system/usr/keylayout/icong-keypad.kl \
+    device/htc/icong/init.icong.rc:root/init.icong.rc \
+    device/htc/icong/ueventd.icong.rc:root/ueventd.icong.rc \
+    device/htc/icong/key/icong-keypad.kcm.bin:system/usr/keychars/icong-keypad.kcm.bin \
+    device/htc/icong/key/h2w_headset.kl:system/usr/keylayout/h2w_headset.kl \
+    device/htc/icong/key/cy8c-touchscreen.kl:system/usr/keylayout/cy8c-touchscreen.kl
 
 # For emmc phone storage
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -193,8 +193,8 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 ### Touchscreen
 PRODUCT_COPY_FILES += \
-    device/htc/marvel/idc/atmel-touchscreen.idc:system/usr/idc/atmel-touchscreen.idc \
-    device/htc/marvel/idc/cy8c-touchscreen.idc:system/usr/idc/cy8c-touchscreen.idc
+    device/htc/icong/idc/atmel-touchscreen.idc:system/usr/idc/atmel-touchscreen.idc \
+    device/htc/icong/idc/cy8c-touchscreen.idc:system/usr/idc/cy8c-touchscreen.idc
 
 # Misc
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -239,4 +239,3 @@ PRODUCT_PROPERTY_OVERRIDES += \
     net.tcp.buffersize.umts=4096,87380,256960,4096,16384,256960 \
     net.tcp.buffersize.gprs=4096,87380,256960,4096,16384,256960 \
     net.tcp.buffersize.edge=4096,87380,256960,4096,16384,256960
-

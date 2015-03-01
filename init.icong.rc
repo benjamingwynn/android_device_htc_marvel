@@ -23,8 +23,8 @@ on early-fs
     chmod 0660 /sys/class/rfkill/rfkill0/state
 
     # bluetooth MAC address programming
-    chown bluetooth bluetooth /sys/module/board_marvel/parameters/bdaddress
-    setprop ro.bt.bdaddr_path /sys/module/board_marvel/parameters/bdaddress
+    chown bluetooth bluetooth /sys/module/board_icong/parameters/bdaddress
+    setprop ro.bt.bdaddr_path /sys/module/board_icong/parameters/bdaddress
 
     # for charging function
     chown radio radio /sys/class/power_supply/battery/charger_control
@@ -208,4 +208,3 @@ service ril-daemon /system/bin/rild
     socket rild-htc-dmagent stream 660 radio system
     user root
     group radio cache inet misc audio sdcard_rw qcom_oncrpc diag log
-
